@@ -21,7 +21,7 @@ public class ApiClient
         this.client.DefaultRequestHeaders.Add("x-api-key", options.Value.Key);
         this.logger = logger;
     }
-    
+
     public async Task<Result<IEnumerable<LevelResponseModel>>> GetLevelsByWorkshopId(string workshopId)
     {
         return await Get<IEnumerable<LevelResponseModel>>("levels/workshop/" + workshopId);
@@ -34,6 +34,16 @@ public class ApiClient
         LevelPostRequestModel model = actualBuilder.Build();
 
         return await Post<LevelResponseModel>("levels", model);
+    }
+
+    public async Task<Result<LevelResponseModel>> UpdateLevel(int existingId, int replacementId)
+    {
+        LevelPutRequestModel model = new()
+        {
+            Replacement = replacementId
+        };
+
+        return await Put<LevelResponseModel>($"levels/{existingId}", model);
     }
 
     private async Task<Result<TResponse>> Get<TResponse>(
@@ -118,6 +128,56 @@ public class ApiClient
     {
         string requestJson = JsonConvert.SerializeObject(data);
         HttpRequestMessage requestMessage = new(HttpMethod.Post, requestUri);
+        requestMessage.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+
+        HttpResponseMessage response;
+
+        try
+        {
+            response = await client.SendAsync(requestMessage, ct);
+        }
+        catch (Exception e)
+        {
+            return Result.Fail(new ExceptionalError(e));
+        }
+
+        try
+        {
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception e)
+        {
+            Result result = Result.Fail(new ExceptionalError(e))
+                .WithReason(new StatusCodeReason(response.StatusCode));
+
+            if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
+            {
+                string errorMessage = await response.Content.ReadAsStringAsync(ct);
+                result = result.WithError(errorMessage);
+            }
+
+            return result;
+        }
+
+        try
+        {
+            string responseJson = await response.Content.ReadAsStringAsync(ct);
+            return JsonConvert.DeserializeObject<TResponse>(responseJson)!;
+        }
+        catch (Exception e)
+        {
+            return Result.Fail(new ExceptionalError(e));
+        }
+    }
+
+    private async Task<Result<TResponse>> Put<TResponse>(
+        string requestUri,
+        object data,
+        CancellationToken ct = default
+    )
+    {
+        string requestJson = JsonConvert.SerializeObject(data);
+        HttpRequestMessage requestMessage = new(HttpMethod.Put, requestUri);
         requestMessage.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
         HttpResponseMessage response;
