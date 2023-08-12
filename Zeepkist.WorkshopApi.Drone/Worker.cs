@@ -15,8 +15,6 @@ namespace TNRD.Zeepkist.WorkshopApi.Drone;
 
 public class Worker : BackgroundService
 {
-    private const string LAST_STAMP_FILE = "laststamp.txt";
-
     private readonly ILogger<Worker> logger;
     private readonly ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger;
     private readonly SteamClient steamClient;
@@ -26,6 +24,8 @@ public class Worker : BackgroundService
 
     private long lastStamp;
     private DateTimeOffset Stamp => DateTimeOffset.FromUnixTimeSeconds(lastStamp);
+
+    private string LastStampPath => Path.Combine(steamOptions.LastStampDestination, "laststamp.txt");
 
     public Worker(
         ILogger<Worker> logger,
@@ -49,10 +49,10 @@ public class Worker : BackgroundService
 
     private void GetLastStampFromFile()
     {
-        if (!File.Exists(LAST_STAMP_FILE))
+        if (!File.Exists(LastStampPath))
             return;
 
-        string txt = File.ReadAllText(LAST_STAMP_FILE);
+        string txt = File.ReadAllText(LastStampPath);
         if (string.IsNullOrEmpty(txt) || string.IsNullOrWhiteSpace(txt))
             return;
 
@@ -87,47 +87,86 @@ public class Worker : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             int page = 1;
+            int totalPages = await steamClient.GetTotalPages(stoppingToken);
 
             bool pastLastStamp = false;
 
             while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
             {
-                logger.LogInformation("Getting page {Page}", page);
+                logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
                 Response response = await steamClient.GetResponse(page, stoppingToken);
-                foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
-                {
-                    if (publishedFileDetails.TimeCreated < Stamp || publishedFileDetails.TimeUpdated < Stamp)
-                    {
-                        pastLastStamp = true;
-                        break;
-                    }
 
-                    await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId,
-                        steamOptions.Destination);
-
-                    List<string> files = Directory
-                        .EnumerateFiles(steamOptions.Destination, "*.zeeplevel", SearchOption.AllDirectories).ToList();
-
-                    foreach (string path in files)
-                    {
-                        await ProcessItem(path,
-                            publishedFileDetails,
-                            publishedFileDetails.PublishedFileId,
-                            stoppingToken);
-                    }
-                }
+                if (await ProcessResponse(response, stoppingToken))
+                    break;
 
                 page++;
             }
 
             lastStamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            await File.WriteAllTextAsync(LAST_STAMP_FILE, lastStamp.ToString(), stoppingToken);
+            await File.WriteAllTextAsync(LastStampPath, lastStamp.ToString(), stoppingToken);
 
-            logger.LogInformation("Waiting 2.5 minutes before checking again");
-            await Task.Delay(TimeSpan.FromMinutes(2.5), stoppingToken);
+            logger.LogInformation("Waiting 1 minute before checking again");
+            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
         }
 
         DepotDownloader.DepotDownloader.Dispose();
+    }
+
+    private async Task<bool> ProcessResponse(Response response, CancellationToken stoppingToken)
+    {
+        foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
+        {
+            if (publishedFileDetails.TimeCreated < Stamp || publishedFileDetails.TimeUpdated < Stamp)
+            {
+                return true;
+            }
+        }
+
+        List<PublishedFileDetails> filtered = await Filter(response);
+
+        foreach (PublishedFileDetails publishedFileDetails in filtered)
+        {
+            await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId,
+                steamOptions.MountDestination);
+
+            List<string> files = Directory
+                .EnumerateFiles(steamOptions.MountDestination, "*.zeeplevel", SearchOption.AllDirectories).ToList();
+
+            foreach (string path in files)
+            {
+                await ProcessItem(path,
+                    publishedFileDetails,
+                    publishedFileDetails.PublishedFileId,
+                    stoppingToken);
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<List<PublishedFileDetails>> Filter(Response response)
+    {
+        List<PublishedFileDetails> filtered = new();
+
+        foreach (PublishedFileDetails details in response.PublishedFileDetails)
+        {
+            Result<IEnumerable<LevelResponseModel>> result =
+                await apiClient.GetLevelsByWorkshopId(details.PublishedFileId);
+
+            if (result.IsFailed)
+            {
+                filtered.Add(details);
+                continue;
+            }
+
+            if (result.Value.Where(x => x.ReplacedBy == null)
+                .Any(x => x.CreatedAt < details.TimeCreated || x.UpdatedAt < details.TimeUpdated))
+            {
+                filtered.Add(details);
+            }
+        }
+
+        return filtered;
     }
 
     private async Task ProcessItem(
@@ -148,21 +187,47 @@ public class Worker : BackgroundService
         Result<IEnumerable<LevelResponseModel>> getLevelsResult = await apiClient.GetLevelsByWorkshopId(workshopId);
         if (getLevelsResult.IsFailedWithNotFound())
         {
-            try
-            {
-                await CreateNewLevel(path, filename, item, stoppingToken);
-            }
-            catch (Exception e)
-            {
-                logger.LogError(e, "Unable to create new level");
-                throw;
-            }
-
-            return;
+            await HandleNewLevel(path, item, filename, stoppingToken);
         }
+        else if (getLevelsResult.IsSuccess)
+        {
+            await HandleExistingItem(path, item, getLevelsResult, filename, stoppingToken);
+        }
+        else
+        {
+            logger.LogCritical("Unable to get levels from API; Result: {Result}", getLevelsResult.ToString());
+            throw new Exception();
+        }
+    }
 
-        LevelResponseModel? existingItem =
-            getLevelsResult.Value.FirstOrDefault(x => x.Name == filename && x.AuthorId == item.Creator);
+    private async Task HandleNewLevel(
+        string path,
+        PublishedFileDetails item,
+        string filename,
+        CancellationToken stoppingToken
+    )
+    {
+        try
+        {
+            await CreateNewLevel(path, filename, item, stoppingToken);
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Unable to create new level");
+            throw;
+        }
+    }
+
+    private async Task HandleExistingItem(
+        string path,
+        PublishedFileDetails item,
+        Result<IEnumerable<LevelResponseModel>> getLevelsResult,
+        string filename,
+        CancellationToken stoppingToken
+    )
+    {
+        LevelResponseModel? existingItem = getLevelsResult.Value.FirstOrDefault(x =>
+            x.Name == filename && x.AuthorId == item.Creator && x.ReplacedBy == null);
 
         if (existingItem == null)
         {
@@ -178,7 +243,7 @@ public class Worker : BackgroundService
         }
         else if (item.TimeCreated > existingItem.CreatedAt || item.TimeUpdated > existingItem.UpdatedAt)
         {
-            logger.LogWarning("Level already exists, probably need to check if we need to change the file?");
+            await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
         }
         else
         {
@@ -186,7 +251,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task CreateNewLevel(
+    private async Task<int> CreateNewLevel(
         string path,
         string filename,
         PublishedFileDetails item,
@@ -204,44 +269,14 @@ public class Worker : BackgroundService
             author = "[Unknown]";
         }
 
-        splits = lines[2].Split(',');
-        float parsedValidation = 0;
-        float parsedGold = 0;
-        float parsedSilver = 0;
-        float parsedBronze = 0;
-
-        bool valid = false;
-
-        if (splits.Length >= 4)
-        {
-            valid = float.TryParse(splits[0], out parsedValidation) &&
-                    float.TryParse(splits[1], out parsedGold) &&
-                    float.TryParse(splits[2], out parsedSilver) &&
-                    float.TryParse(splits[3], out parsedBronze);
-        }
-        else
-        {
-            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
-        }
-
-        if (valid)
-        {
-            if (float.IsNaN(parsedValidation) || float.IsInfinity(parsedValidation) ||
-                float.IsNaN(parsedGold) || float.IsInfinity(parsedGold) ||
-                float.IsNaN(parsedSilver) || float.IsInfinity(parsedSilver) ||
-                float.IsNaN(parsedBronze) || float.IsInfinity(parsedBronze))
-            {
-                valid = false;
-            }
-        }
-
-        if (!valid)
-        {
-            parsedValidation = 0;
-            parsedGold = 0;
-            parsedSilver = 0;
-            parsedBronze = 0;
-        }
+        ParseTimes(filename,
+            item,
+            lines[2].Split(','),
+            out bool valid,
+            out float parsedValidation,
+            out float parsedGold,
+            out float parsedSilver,
+            out float parsedBronze);
 
         string hash = Hash(await File.ReadAllTextAsync(path, stoppingToken));
         string sourceDirectory = Path.GetDirectoryName(path)!;
@@ -319,31 +354,109 @@ public class Worker : BackgroundService
             filename,
             author,
             item.Creator);
+
+        return createLevelResult.Value.Id;
     }
 
-    // private async Task<List<PublishedFileDetails>> Filter(Response response)
-    // {
-    //     List<PublishedFileDetails> filtered = new();
-    //
-    //     foreach (PublishedFileDetails details in response.PublishedFileDetails)
-    //     {
-    //         Result<IEnumerable<LevelResponseModel>> result =
-    //             await apiClient.GetLevelsByWorkshopId(details.PublishedFileId);
-    //
-    //         if (result.IsFailed)
-    //         {
-    //             filtered.Add(details);
-    //             continue;
-    //         }
-    //
-    //         if (result.Value.Any(x => x.CreatedAt < details.TimeCreated || x.UpdatedAt < details.TimeUpdated))
-    //         {
-    //             filtered.Add(details);
-    //         }
-    //     }
-    //
-    //     return filtered;
-    // }
+    private void ParseTimes(
+        string filename,
+        PublishedFileDetails item,
+        string[] splits,
+        out bool valid,
+        out float parsedValidation,
+        out float parsedGold,
+        out float parsedSilver,
+        out float parsedBronze
+    )
+    {
+        parsedValidation = 0;
+        parsedGold = 0;
+        parsedSilver = 0;
+        parsedBronze = 0;
+
+        valid = false;
+
+        if (splits.Length >= 4)
+        {
+            valid = float.TryParse(splits[0], out parsedValidation) &&
+                    float.TryParse(splits[1], out parsedGold) &&
+                    float.TryParse(splits[2], out parsedSilver) &&
+                    float.TryParse(splits[3], out parsedBronze);
+        }
+        else
+        {
+            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+        }
+
+        if (valid)
+        {
+            if (float.IsNaN(parsedValidation) || float.IsInfinity(parsedValidation) ||
+                float.IsNaN(parsedGold) || float.IsInfinity(parsedGold) ||
+                float.IsNaN(parsedSilver) || float.IsInfinity(parsedSilver) ||
+                float.IsNaN(parsedBronze) || float.IsInfinity(parsedBronze))
+            {
+                valid = false;
+            }
+        }
+
+        if (!valid)
+        {
+            parsedValidation = 0;
+            parsedGold = 0;
+            parsedSilver = 0;
+            parsedBronze = 0;
+        }
+    }
+
+    private async Task ReplaceExistingLevel(
+        LevelResponseModel existingItem,
+        string path,
+        string filename,
+        PublishedFileDetails item,
+        CancellationToken stoppingToken
+    )
+    {
+        string newUid = await GetUidFromFile(path, stoppingToken);
+        if (string.Equals(existingItem.FileUid, newUid))
+        {
+            logger.LogInformation("False positive for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            return;
+        }
+
+        int newId;
+
+        try
+        {
+            newId = await CreateNewLevel(path, filename, item, stoppingToken);
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Unable to create new level");
+            throw;
+        }
+
+        int existingId = existingItem.Id;
+
+        Result<LevelResponseModel> result = await apiClient.UpdateLevel(existingId, newId);
+
+        if (result.IsFailed)
+        {
+            logger.LogCritical("Unable to replace level {ExistingId} with {NewId}; Result: {Result}",
+                existingId,
+                newId,
+                result.ToString());
+
+            throw new Exception();
+        }
+
+        logger.LogInformation("Replaced level {ExistingId} with {NewId}", existingId, newId);
+    }
+
+    private static async Task<string> GetUidFromFile(string path, CancellationToken stoppingToken)
+    {
+        string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
+        return lines[0].Split(',')[2];
+    }
 
     private static string Hash(string input)
     {
