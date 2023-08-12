@@ -116,10 +116,15 @@ public class Worker : BackgroundService
     {
         foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
         {
-            if (publishedFileDetails.TimeCreated < Stamp || publishedFileDetails.TimeUpdated < Stamp)
-            {
-                return true;
-            }
+            if (publishedFileDetails.TimeCreated >= Stamp && publishedFileDetails.TimeUpdated >= Stamp)
+                continue;
+
+            logger.LogInformation("Stamp is {Stamp}; Item created is {Created}; Item updated is {Updated}. Skipping run",
+                Stamp,
+                publishedFileDetails.TimeCreated,
+                publishedFileDetails.TimeUpdated);
+
+            return true;
         }
 
         List<PublishedFileDetails> filtered = await Filter(response);
