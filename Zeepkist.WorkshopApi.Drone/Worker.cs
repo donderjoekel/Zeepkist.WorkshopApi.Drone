@@ -22,11 +22,6 @@ public class Worker : BackgroundService
     private readonly IUploadService uploadService;
     private readonly SteamOptions steamOptions;
 
-    private long lastStamp;
-    private DateTimeOffset Stamp => DateTimeOffset.FromUnixTimeSeconds(lastStamp);
-
-    private string LastStampPath => Path.Combine(steamOptions.LastStampDestination, "laststamp.txt");
-
     public Worker(
         ILogger<Worker> logger,
         SteamClient steamClient,
@@ -42,42 +37,6 @@ public class Worker : BackgroundService
         this.uploadService = uploadService;
         this.depotDownloaderLogger = depotDownloaderLogger;
         this.steamOptions = steamOptions.Value;
-
-        GetLastStampFromFile();
-        GetLastStampFromOptions();
-    }
-
-    private void GetLastStampFromFile()
-    {
-        if (!File.Exists(LastStampPath))
-            return;
-
-        string txt = File.ReadAllText(LastStampPath);
-        if (string.IsNullOrEmpty(txt) || string.IsNullOrWhiteSpace(txt))
-            return;
-
-        if (!long.TryParse(txt, out lastStamp))
-        {
-            lastStamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        }
-    }
-
-    private void GetLastStampFromOptions()
-    {
-        if (string.IsNullOrEmpty(steamOptions.LastStamp))
-            return;
-
-        if (long.TryParse(steamOptions.LastStamp, out long tempStamp))
-        {
-            if (tempStamp > lastStamp)
-            {
-                lastStamp = tempStamp;
-            }
-        }
-        else if (lastStamp == 0)
-        {
-            lastStamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -102,9 +61,6 @@ public class Worker : BackgroundService
                 page++;
             }
 
-            lastStamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            await File.WriteAllTextAsync(LastStampPath, lastStamp.ToString(), stoppingToken);
-
             logger.LogInformation("Waiting 1 minute before checking again");
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
         }
@@ -114,23 +70,13 @@ public class Worker : BackgroundService
 
     private async Task<bool> ProcessResponse(Response response, CancellationToken stoppingToken)
     {
-        foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
-        {
-            if (publishedFileDetails.TimeCreated >= Stamp && publishedFileDetails.TimeUpdated >= Stamp)
-                continue;
-
-            logger.LogInformation("Stamp is {Stamp}; Item created is {Created}; Item updated is {Updated}. Skipping run",
-                Stamp,
-                publishedFileDetails.TimeCreated,
-                publishedFileDetails.TimeUpdated);
-
-            return true;
-        }
-
+        logger.LogInformation("Filtering items");
         List<PublishedFileDetails> filtered = await Filter(response);
 
+        logger.LogInformation("Processing {Count} items", filtered.Count);
         foreach (PublishedFileDetails publishedFileDetails in filtered)
         {
+            logger.LogInformation("Downloading {WorkshopId}", publishedFileDetails.PublishedFileId);
             await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId,
                 steamOptions.MountDestination);
 
@@ -139,6 +85,7 @@ public class Worker : BackgroundService
 
             foreach (string path in files)
             {
+                logger.LogInformation("Processing '{Path}'", path);
                 await ProcessItem(path,
                     publishedFileDetails,
                     publishedFileDetails.PublishedFileId,
@@ -146,7 +93,7 @@ public class Worker : BackgroundService
             }
         }
 
-        return false;
+        return filtered.Count == 0;
     }
 
     private async Task<List<PublishedFileDetails>> Filter(Response response)
