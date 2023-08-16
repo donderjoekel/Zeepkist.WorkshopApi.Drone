@@ -42,27 +42,39 @@ public class Worker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         DepotDownloader.DepotDownloader.Initialize(depotDownloaderLogger);
+        int timeToWait = 5;
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            int page = 1;
-            int totalPages = await steamClient.GetTotalPages(stoppingToken);
-
-            bool pastLastStamp = false;
-
-            while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+            try
             {
-                logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-                Response response = await steamClient.GetResponse(page, stoppingToken);
+                int page = 1;
+                int totalPages = await steamClient.GetTotalPages(stoppingToken);
 
-                if (await ProcessResponse(response, stoppingToken))
-                    break;
+                bool pastLastStamp = false;
 
-                page++;
+                while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+                {
+                    logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+                    Response response = await steamClient.GetResponse(page, stoppingToken);
+
+                    if (await ProcessResponse(response, stoppingToken))
+                        break;
+
+                    page++;
+                }
+
+                timeToWait = 5;
+                logger.LogInformation("Waiting 1 minute before checking again");
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
             }
-
-            logger.LogInformation("Waiting 1 minute before checking again");
-            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+            catch (Exception e)
+            {
+                logger.LogCritical(e, "Unhandled exception");
+                logger.LogInformation("Waiting 5 minutes before trying again");
+                await Task.Delay(TimeSpan.FromMinutes(timeToWait), stoppingToken);
+                timeToWait *= 2;
+            }
         }
 
         DepotDownloader.DepotDownloader.Dispose();
