@@ -103,6 +103,8 @@ public class Worker : BackgroundService
                     publishedFileDetails.PublishedFileId,
                     stoppingToken);
             }
+            
+            Directory.Delete(steamOptions.MountDestination, true);
         }
 
         return filtered.Count == 0;
