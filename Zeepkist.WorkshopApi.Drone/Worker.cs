@@ -244,7 +244,7 @@ public class Worker : BackgroundService
             out float parsedSilver,
             out float parsedBronze);
 
-        string hash = Hash(await File.ReadAllTextAsync(path, stoppingToken));
+        string hash = Hash(await GetTextToHash(path, stoppingToken));
         string sourceDirectory = Path.GetDirectoryName(path)!;
         string? image = Directory.GetFiles(sourceDirectory, "*.jpg").FirstOrDefault();
 
@@ -422,6 +422,12 @@ public class Worker : BackgroundService
     {
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
         return lines[0].Split(',')[2];
+    }
+
+    private static async Task<string> GetTextToHash(string path, CancellationToken stoppingToken)
+    {
+        string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
+        return string.Join(Environment.NewLine, lines.Skip(3));
     }
 
     private static string Hash(string input)
