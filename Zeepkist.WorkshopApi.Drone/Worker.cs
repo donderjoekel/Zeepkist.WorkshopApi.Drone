@@ -103,7 +103,7 @@ public class Worker : BackgroundService
                     publishedFileDetails.PublishedFileId,
                     stoppingToken);
             }
-            
+
             Directory.Delete(steamOptions.MountDestination, true);
         }
 
@@ -427,7 +427,9 @@ public class Worker : BackgroundService
     private static async Task<string> GetTextToHash(string path, CancellationToken stoppingToken)
     {
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
-        return string.Join(Environment.NewLine, lines.Skip(3));
+        string[] splits = lines[2].Split(',');
+        string skyboxAndBasePlate = splits[4] + "," + splits[5];
+        return string.Join("\n", lines.Skip(3).Prepend(skyboxAndBasePlate));
     }
 
     private static string Hash(string input)
