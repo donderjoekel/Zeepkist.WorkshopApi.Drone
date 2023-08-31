@@ -428,7 +428,11 @@ public class Worker : BackgroundService
     {
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
         string[] splits = lines[2].Split(',');
-        string skyboxAndBasePlate = splits[^2] + "," + splits[^1];
+
+        string skyboxAndBasePlate = splits.Length != 6
+            ? "unknown,unknown"
+            : splits[^2] + "," + splits[^1];
+
         return string.Join("\n", lines.Skip(3).Prepend(skyboxAndBasePlate));
     }
 
