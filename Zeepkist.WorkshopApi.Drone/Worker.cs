@@ -255,7 +255,7 @@ public class Worker : BackgroundService
 
         FastZip fastZip = new();
         fastZip.CompressionLevel = Deflater.CompressionLevel.BEST_COMPRESSION;
-        fastZip.CreateZip(path + ".zip", sourceDirectory, true, $@"\{filename}.zeeplevel$");
+        fastZip.CreateZip(path + ".zip", sourceDirectory, true, $@"\\({filename}.zeeplevel)$");
 
         string identifier = Guid.NewGuid().ToString();
 
