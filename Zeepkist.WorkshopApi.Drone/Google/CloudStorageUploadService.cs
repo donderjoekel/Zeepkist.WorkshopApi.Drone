@@ -50,7 +50,7 @@ internal class CloudStorageUploadService : IUploadService
         if (result.IsFailed)
             return result.ToResult();
 
-        return result.Value.MediaLink;
+        return $"https://storage.googleapis.com/zworpshop/{options.ThumbnailsFolder}/{identifier}.zip";
     }
 
     public async Task<Result<string>> UploadLevel(string identifier, byte[] buffer, CancellationToken ct = default)
@@ -69,7 +69,7 @@ internal class CloudStorageUploadService : IUploadService
         if (result.IsFailed)
             return result.ToResult();
 
-        return result.Value.MediaLink;
+        return $"https://storage.googleapis.com/zworpshop/{options.LevelsFolder}/{identifier}.zip";
     }
 
     private async Task<Result<Object>> Upload(
