@@ -8,7 +8,7 @@ namespace TNRD.Zeepkist.WorkshopApi.Drone.Steam;
 public class SteamClient
 {
     private const int ITEMS_PER_PAGE = 5;
-    
+
     private readonly HttpClient httpClient;
     private readonly SteamOptions options;
 
@@ -18,12 +18,12 @@ public class SteamClient
         this.options = options.Value;
     }
 
-    public async Task<int> GetTotalPages(CancellationToken stoppingToken)
+    public async Task<int> GetTotalPages(bool byModified, CancellationToken stoppingToken)
     {
         Dictionary<string, string> query = new()
         {
             { "key", options.Key },
-            { "query_type", "1" },
+            { "query_type", byModified ? "21" : "1" },
             { "appid", "1440670" },
             { "totalonly", "true" },
             { "format", "json" }
@@ -42,14 +42,14 @@ public class SteamClient
         return (int)Math.Ceiling(responseWrapper.Response.Total / (double)ITEMS_PER_PAGE);
     }
 
-    public async Task<Response> GetResponse(int page, CancellationToken stoppingToken)
+    public async Task<Response> GetResponse(int page, bool byModified, CancellationToken stoppingToken)
     {
         int actualPage = page;
 
         Dictionary<string, string> query = new()
         {
             { "key", options.Key },
-            { "query_type", "1" },
+            { "query_type", byModified ? "21" : "1" },
             { "appid", "1440670" },
             { "page", actualPage.ToString() },
             { "numperpage", ITEMS_PER_PAGE.ToString() },

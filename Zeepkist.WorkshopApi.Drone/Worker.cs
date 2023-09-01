@@ -48,21 +48,8 @@ public class Worker : BackgroundService
         {
             try
             {
-                int page = 1;
-                int totalPages = await steamClient.GetTotalPages(stoppingToken);
-
-                bool pastLastStamp = false;
-
-                while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
-                {
-                    logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-                    Response response = await steamClient.GetResponse(page, stoppingToken);
-
-                    if (await ProcessResponse(response, stoppingToken))
-                        break;
-
-                    page++;
-                }
+                await ExecuteByCreated(stoppingToken);
+                await ExecuteByModified(stoppingToken);
 
                 timeToWait = 5;
                 logger.LogInformation("Waiting 1 minute before checking again");
@@ -78,6 +65,44 @@ public class Worker : BackgroundService
         }
 
         DepotDownloader.DepotDownloader.Dispose();
+    }
+
+    private async Task ExecuteByModified(CancellationToken stoppingToken)
+    {
+        int page = 1;
+        int totalPages = await steamClient.GetTotalPages(true, stoppingToken);
+
+        bool pastLastStamp = false;
+
+        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+        {
+            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+            Response response = await steamClient.GetResponse(page, true, stoppingToken);
+
+            if (await ProcessResponse(response, stoppingToken))
+                break;
+
+            page++;
+        }
+    }
+
+    private async Task ExecuteByCreated(CancellationToken stoppingToken)
+    {
+        int page = 1;
+        int totalPages = await steamClient.GetTotalPages(false, stoppingToken);
+
+        bool pastLastStamp = false;
+
+        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+        {
+            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+            Response response = await steamClient.GetResponse(page, false, stoppingToken);
+
+            if (await ProcessResponse(response, stoppingToken))
+                break;
+
+            page++;
+        }
     }
 
     private async Task<bool> ProcessResponse(Response response, CancellationToken stoppingToken)
