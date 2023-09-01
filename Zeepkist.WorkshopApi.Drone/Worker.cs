@@ -150,8 +150,23 @@ public class Worker : BackgroundService
                 continue;
             }
 
-            if (result.Value.Where(x => x.ReplacedBy == null)
-                .Any(x => x.CreatedAt < details.TimeCreated || x.UpdatedAt < details.TimeUpdated))
+            bool addToFiltered = false;
+
+            foreach (LevelResponseModel model in result.Value)
+            {
+                if (model.ReplacedBy.HasValue)
+                    continue;
+
+                if (model.CreatedAt >= details.TimeCreated)
+                    continue;
+
+                if (model.UpdatedAt >= details.TimeUpdated)
+                    continue;
+
+                addToFiltered = true;
+            }
+
+            if (addToFiltered)
             {
                 filtered.Add(details);
             }
