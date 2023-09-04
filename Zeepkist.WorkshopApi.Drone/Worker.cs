@@ -220,7 +220,6 @@ public class Worker : BackgroundService
         catch (Exception e)
         {
             logger.LogError(e, "Unable to create new level");
-            throw;
         }
     }
 
@@ -244,7 +243,6 @@ public class Worker : BackgroundService
             catch (Exception e)
             {
                 logger.LogError(e, "Unable to create new level");
-                throw;
             }
         }
         else if (item.TimeCreated > existingItem.CreatedAt || item.TimeUpdated > existingItem.UpdatedAt)
@@ -265,6 +263,11 @@ public class Worker : BackgroundService
     )
     {
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
+        if (lines.Length == 0)
+        {
+            throw new InvalidDataException("Level file is empty");
+        }
+
         string[] splits = lines[0].Split(',');
         string author = splits[1];
         string uid = splits[2];
@@ -438,7 +441,7 @@ public class Worker : BackgroundService
         catch (Exception e)
         {
             logger.LogError(e, "Unable to create new level");
-            throw;
+            return;
         }
 
         int existingId = existingItem.Id;
