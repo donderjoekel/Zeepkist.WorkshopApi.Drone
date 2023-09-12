@@ -1,8 +1,7 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using FluentResults;
-using ICSharpCode.SharpZipLib.Zip;
-using ICSharpCode.SharpZipLib.Zip.Compression;
 using Microsoft.Extensions.Options;
 using TNRD.Zeepkist.WorkshopApi.Drone.Api;
 using TNRD.Zeepkist.WorkshopApi.Drone.Data;
@@ -41,11 +40,12 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        DepotDownloader.DepotDownloader.Initialize(depotDownloaderLogger);
         int timeToWait = 5;
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            DepotDownloader.DepotDownloader.Initialize(depotDownloaderLogger);
+
             try
             {
                 await ExecuteByCreated(stoppingToken);
@@ -62,9 +62,11 @@ public class Worker : BackgroundService
                 await Task.Delay(TimeSpan.FromMinutes(timeToWait), stoppingToken);
                 timeToWait *= 2;
             }
-        }
 
-        DepotDownloader.DepotDownloader.Dispose();
+            DepotDownloader.DepotDownloader.Dispose();
+
+            GC.Collect();
+        }
     }
 
     private async Task ExecuteByModified(CancellationToken stoppingToken)
@@ -296,9 +298,14 @@ public class Worker : BackgroundService
             logger.LogWarning("No image found for {Filename}", filename);
         }
 
-        FastZip fastZip = new();
-        fastZip.CompressionLevel = Deflater.CompressionLevel.BEST_COMPRESSION;
-        fastZip.CreateZip(path + ".zip", sourceDirectory, true, $@"\\({filename}.zeeplevel)$");
+        using (FileStream zipStream = File.Create(path + ".zip"))
+        {
+            string filePath = Path.Combine(sourceDirectory, filename + ".zeeplevel");
+            using (ZipArchive archive = new(zipStream, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(filePath, filename + ".zeeplevel", CompressionLevel.Optimal);
+            }
+        }
 
         string identifier = Guid.NewGuid().ToString();
 

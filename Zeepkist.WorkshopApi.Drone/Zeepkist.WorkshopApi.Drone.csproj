@@ -21,7 +21,6 @@
         <PackageReference Include="QRCoder" Version="1.4.3" />
         <PackageReference Include="Serilog.AspNetCore" Version="7.0.0" />
         <PackageReference Include="Serilog.Sinks.Seq" Version="5.2.2" />
-        <PackageReference Include="SharpZipLib" Version="1.4.2" />
         <PackageReference Include="SteamKit2" Version="2.5.0-Beta.1" />
         <PackageReference Include="System.Net.Http" Version="4.3.4" />
     </ItemGroup>
