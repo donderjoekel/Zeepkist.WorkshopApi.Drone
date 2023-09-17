@@ -46,6 +46,28 @@ public class ApiClient
         return await Put<LevelResponseModel>($"levels/{existingId}", model);
     }
 
+    public async Task<Result<LevelResponseModel>> GetLastCreated()
+    {
+        Result<IEnumerable<LevelResponseModel>> result =
+            await Get<IEnumerable<LevelResponseModel>>("levels/last-created");
+
+        if (result.IsFailed)
+            return result.ToResult();
+        
+        return result.Value.First();
+    }
+    
+    public async Task<Result<LevelResponseModel>> GetLastUpdated()
+    {
+        Result<IEnumerable<LevelResponseModel>> result =
+            await Get<IEnumerable<LevelResponseModel>>("levels/last-updated");
+
+        if (result.IsFailed)
+            return result.ToResult();
+        
+        return result.Value.First();
+    }
+
     private async Task<Result<TResponse>> Get<TResponse>(
         string requestUri,
         CancellationToken ct = default

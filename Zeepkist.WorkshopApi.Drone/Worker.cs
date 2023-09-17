@@ -69,30 +69,19 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ExecuteByModified(CancellationToken stoppingToken)
-    {
-        int page = 1;
-        int totalPages = await steamClient.GetTotalPages(true, stoppingToken);
-
-        bool pastLastStamp = false;
-
-        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
-        {
-            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-            Response response = await steamClient.GetResponse(page, true, stoppingToken);
-
-            if (await ProcessResponse(response, stoppingToken))
-                break;
-
-            page++;
-        }
-    }
-
     private async Task ExecuteByCreated(CancellationToken stoppingToken)
     {
         int page = 1;
         int totalPages = await steamClient.GetTotalPages(false, stoppingToken);
 
+        Result<LevelResponseModel> lastCreatedResult = await apiClient.GetLastCreated();
+        if (lastCreatedResult.IsFailed)
+        {
+            logger.LogError("Unable to get last created: {Result}", lastCreatedResult.ToString());
+            return;
+        }
+
+        DateTime stamp = lastCreatedResult.Value.CreatedAt;
         bool pastLastStamp = false;
 
         while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
@@ -100,8 +89,51 @@ public class Worker : BackgroundService
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
             Response response = await steamClient.GetResponse(page, false, stoppingToken);
 
-            if (await ProcessResponse(response, stoppingToken))
+            await ProcessResponse(response, stoppingToken);
+
+            foreach (PublishedFileDetails details in response.PublishedFileDetails)
+            {
+                if (details.TimeCreated < stamp)
+                    continue;
+
+                pastLastStamp = true;
                 break;
+            }
+
+            page++;
+        }
+    }
+
+    private async Task ExecuteByModified(CancellationToken stoppingToken)
+    {
+        int page = 1;
+        int totalPages = await steamClient.GetTotalPages(true, stoppingToken);
+
+        Result<LevelResponseModel> lastUpdatedResult = await apiClient.GetLastUpdated();
+        if (lastUpdatedResult.IsFailed)
+        {
+            logger.LogError("Unable to get last updated: {Result}", lastUpdatedResult.ToString());
+            return;
+        }
+
+        DateTime stamp = lastUpdatedResult.Value.CreatedAt;
+        bool pastLastStamp = false;
+
+        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+        {
+            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+            Response response = await steamClient.GetResponse(page, true, stoppingToken);
+
+            await ProcessResponse(response, stoppingToken);
+
+            foreach (PublishedFileDetails details in response.PublishedFileDetails)
+            {
+                if (details.TimeUpdated < stamp)
+                    continue;
+
+                pastLastStamp = true;
+                break;
+            }
 
             page++;
         }
