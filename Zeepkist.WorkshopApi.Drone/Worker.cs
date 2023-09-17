@@ -93,7 +93,7 @@ public class Worker : BackgroundService
 
             foreach (PublishedFileDetails details in response.PublishedFileDetails)
             {
-                if (details.TimeCreated < stamp)
+                if (stamp < details.TimeCreated)
                     continue;
 
                 pastLastStamp = true;
@@ -116,7 +116,7 @@ public class Worker : BackgroundService
             return;
         }
 
-        DateTime stamp = lastUpdatedResult.Value.CreatedAt;
+        DateTime stamp = lastUpdatedResult.Value.UpdatedAt;
         bool pastLastStamp = false;
 
         while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
@@ -128,7 +128,7 @@ public class Worker : BackgroundService
 
             foreach (PublishedFileDetails details in response.PublishedFileDetails)
             {
-                if (details.TimeUpdated < stamp)
+                if (stamp < details.TimeUpdated)
                     continue;
 
                 pastLastStamp = true;
