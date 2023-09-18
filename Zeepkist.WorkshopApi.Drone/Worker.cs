@@ -14,6 +14,8 @@ namespace TNRD.Zeepkist.WorkshopApi.Drone;
 
 public class Worker : BackgroundService
 {
+    private const int MAX_EMPTY_PAGES = 5;
+
     private readonly ILogger<Worker> logger;
     private readonly ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger;
     private readonly SteamClient steamClient;
@@ -83,13 +85,17 @@ public class Worker : BackgroundService
 
         DateTime stamp = lastCreatedResult.Value.CreatedAt;
         bool pastLastStamp = false;
+        int amountEmpty = 0;
 
-        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+        while (!stoppingToken.IsCancellationRequested && !pastLastStamp && amountEmpty < MAX_EMPTY_PAGES)
         {
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
             Response response = await steamClient.GetResponse(page, false, stoppingToken);
 
-            await ProcessResponse(response, stoppingToken);
+            if (await ProcessResponse(response, stoppingToken))
+                amountEmpty++;
+            else
+                amountEmpty = 0;
 
             foreach (PublishedFileDetails details in response.PublishedFileDetails)
             {
@@ -118,13 +124,17 @@ public class Worker : BackgroundService
 
         DateTime stamp = lastUpdatedResult.Value.UpdatedAt;
         bool pastLastStamp = false;
+        int amountEmpty = 0;
 
-        while (!stoppingToken.IsCancellationRequested && !pastLastStamp)
+        while (!stoppingToken.IsCancellationRequested && !pastLastStamp && amountEmpty < MAX_EMPTY_PAGES)
         {
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
             Response response = await steamClient.GetResponse(page, true, stoppingToken);
 
-            await ProcessResponse(response, stoppingToken);
+            if (await ProcessResponse(response, stoppingToken))
+                amountEmpty++;
+            else
+                amountEmpty = 0;
 
             foreach (PublishedFileDetails details in response.PublishedFileDetails)
             {
