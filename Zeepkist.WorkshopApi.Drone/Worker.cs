@@ -28,6 +28,7 @@ public class Worker : BackgroundService
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
+        // ReSharper disable once ContextualLoggerProblem
         ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger,
         IOptions<SteamOptions> steamOptions
     )
@@ -50,8 +51,8 @@ public class Worker : BackgroundService
 
             try
             {
-                await ExecuteByCreated(stoppingToken);
                 await ExecuteByModified(stoppingToken);
+                await ExecuteByCreated(stoppingToken);
 
                 timeToWait = 5;
                 logger.LogInformation("Waiting 1 minute before checking again");
@@ -83,11 +84,9 @@ public class Worker : BackgroundService
             return;
         }
 
-        DateTime stamp = lastCreatedResult.Value.CreatedAt;
-        bool pastLastStamp = false;
         int amountEmpty = 0;
 
-        while (!stoppingToken.IsCancellationRequested && !pastLastStamp && amountEmpty < MAX_EMPTY_PAGES)
+        while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
             Response response = await steamClient.GetResponse(page, false, stoppingToken);
@@ -96,15 +95,6 @@ public class Worker : BackgroundService
                 amountEmpty++;
             else
                 amountEmpty = 0;
-
-            foreach (PublishedFileDetails details in response.PublishedFileDetails)
-            {
-                if (stamp < details.TimeCreated)
-                    continue;
-
-                pastLastStamp = true;
-                break;
-            }
 
             page++;
         }
@@ -122,11 +112,9 @@ public class Worker : BackgroundService
             return;
         }
 
-        DateTime stamp = lastUpdatedResult.Value.UpdatedAt;
-        bool pastLastStamp = false;
         int amountEmpty = 0;
 
-        while (!stoppingToken.IsCancellationRequested && !pastLastStamp && amountEmpty < MAX_EMPTY_PAGES)
+        while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
             Response response = await steamClient.GetResponse(page, true, stoppingToken);
@@ -135,15 +123,6 @@ public class Worker : BackgroundService
                 amountEmpty++;
             else
                 amountEmpty = 0;
-
-            foreach (PublishedFileDetails details in response.PublishedFileDetails)
-            {
-                if (stamp < details.TimeUpdated)
-                    continue;
-
-                pastLastStamp = true;
-                break;
-            }
 
             page++;
         }
@@ -201,13 +180,15 @@ public class Worker : BackgroundService
                 if (model.ReplacedBy.HasValue)
                     continue;
 
-                if (model.CreatedAt >= details.TimeCreated)
-                    continue;
-
-                if (model.UpdatedAt >= details.TimeUpdated)
-                    continue;
-
-                addToFiltered = true;
+                if (model.UpdatedAt < details.TimeUpdated)
+                {
+                    addToFiltered = true;
+                }
+                
+                if (model.CreatedAt < details.TimeCreated)
+                {
+                    addToFiltered = true;
+                }
             }
 
             if (addToFiltered)
