@@ -1,7 +1,7 @@
 ﻿using System.Net;
 using FluentResults;
 
-namespace Zeepkist.WorkshopApi.Drone.FluentResults;
+namespace TNRD.Zeepkist.WorkshopApi.Drone.FluentResults;
 
 internal class StatusCodeReason : IReason
 {

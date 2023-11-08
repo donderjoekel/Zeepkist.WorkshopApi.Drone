@@ -3,8 +3,8 @@ using System.Text;
 using FluentResults;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using TNRD.Zeepkist.WorkshopApi.Drone.FluentResults;
 using TNRD.Zeepkist.WorkshopApi.Drone.ResponseModels;
-using Zeepkist.WorkshopApi.Drone.FluentResults;
 using Zeepkist.WorkshopApi.Drone.RequestModels;
 
 namespace TNRD.Zeepkist.WorkshopApi.Drone.Api;
@@ -36,14 +36,29 @@ public class ApiClient
         return await Post<LevelResponseModel>("levels", model);
     }
 
-    public async Task<Result<LevelResponseModel>> UpdateLevel(int existingId, int replacementId)
+    public async Task<Result<LevelResponseModel>> ReplaceLevel(int existingId, int replacementId)
     {
-        LevelPutRequestModel model = new()
+        LevelReplaceRequestModel model = new()
         {
             Replacement = replacementId
         };
 
-        return await Put<LevelResponseModel>($"levels/{existingId}", model);
+        return await Put<LevelResponseModel>($"levels/{existingId}/replace", model);
+    }
+
+    public async Task<Result<LevelResponseModel>> UpdateLevelTime(int id, long ticks)
+    {
+        LevelUpdateTimeRequestModel model = new()
+        {
+            Ticks = ticks
+        };
+
+        return await Put<LevelResponseModel>($"levels/{id}/updated", model);
+    }
+
+    public async Task<Result<LevelResponseModel>> DeleteLevel(int id)
+    {
+        return await Delete<LevelResponseModel>($"levels/{id}");
     }
 
     public async Task<Result<LevelResponseModel>> GetLastCreated()
@@ -53,10 +68,10 @@ public class ApiClient
 
         if (result.IsFailed)
             return result.ToResult();
-        
+
         return result.Value.First();
     }
-    
+
     public async Task<Result<LevelResponseModel>> GetLastUpdated()
     {
         Result<IEnumerable<LevelResponseModel>> result =
@@ -64,7 +79,7 @@ public class ApiClient
 
         if (result.IsFailed)
             return result.ToResult();
-        
+
         return result.Value.First();
     }
 
@@ -74,7 +89,6 @@ public class ApiClient
     )
     {
         HttpRequestMessage requestMessage = new(HttpMethod.Get, requestUri);
-
         HttpResponseMessage response;
 
         try
@@ -202,6 +216,52 @@ public class ApiClient
         HttpRequestMessage requestMessage = new(HttpMethod.Put, requestUri);
         requestMessage.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
+        HttpResponseMessage response;
+
+        try
+        {
+            response = await client.SendAsync(requestMessage, ct);
+        }
+        catch (Exception e)
+        {
+            return Result.Fail(new ExceptionalError(e));
+        }
+
+        try
+        {
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception e)
+        {
+            Result result = Result.Fail(new ExceptionalError(e))
+                .WithReason(new StatusCodeReason(response.StatusCode));
+
+            if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
+            {
+                string errorMessage = await response.Content.ReadAsStringAsync(ct);
+                result = result.WithError(errorMessage);
+            }
+
+            return result;
+        }
+
+        try
+        {
+            string responseJson = await response.Content.ReadAsStringAsync(ct);
+            return JsonConvert.DeserializeObject<TResponse>(responseJson)!;
+        }
+        catch (Exception e)
+        {
+            return Result.Fail(new ExceptionalError(e));
+        }
+    }
+
+    private async Task<Result<TResponse>> Delete<TResponse>(
+        string requestUri,
+        CancellationToken ct = default
+    )
+    {
+        HttpRequestMessage requestMessage = new(HttpMethod.Delete, requestUri);
         HttpResponseMessage response;
 
         try

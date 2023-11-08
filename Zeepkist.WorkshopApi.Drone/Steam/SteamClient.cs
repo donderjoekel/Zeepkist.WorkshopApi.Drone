@@ -42,6 +42,26 @@ public class SteamClient
         return (int)Math.Ceiling(responseWrapper.Response.Total / (double)ITEMS_PER_PAGE);
     }
 
+    public async Task<Response> GetResponse(string workshopId, CancellationToken stoppingToken)
+    {
+        Dictionary<string, string> query = new()
+        {
+            { "key", options.Key },
+            { "includevotes", "true" },
+            { "publishedfileids[0]", workshopId.Trim() }
+        };
+
+        string url = "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/" + ToQueryString(query);
+
+        HttpResponseMessage response = await httpClient.GetAsync(url, stoppingToken);
+        response.EnsureSuccessStatusCode();
+
+        string json = await response.Content.ReadAsStringAsync(stoppingToken);
+
+        ResponseWrapper? responseWrapper = JsonConvert.DeserializeObject<ResponseWrapper>(json);
+        return responseWrapper.Response;
+    }
+
     public async Task<Response> GetResponse(int page, bool byModified, CancellationToken stoppingToken)
     {
         int actualPage = page;

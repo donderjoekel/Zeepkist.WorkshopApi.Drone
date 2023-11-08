@@ -5,10 +5,10 @@ using FluentResults;
 using Microsoft.Extensions.Options;
 using TNRD.Zeepkist.WorkshopApi.Drone.Api;
 using TNRD.Zeepkist.WorkshopApi.Drone.Data;
+using TNRD.Zeepkist.WorkshopApi.Drone.FluentResults;
 using TNRD.Zeepkist.WorkshopApi.Drone.Google;
 using TNRD.Zeepkist.WorkshopApi.Drone.ResponseModels;
 using TNRD.Zeepkist.WorkshopApi.Drone.Steam;
-using Zeepkist.WorkshopApi.Drone.FluentResults;
 
 namespace TNRD.Zeepkist.WorkshopApi.Drone;
 
@@ -132,6 +132,7 @@ public class Worker : BackgroundService
     {
         logger.LogInformation("Filtering items");
         List<PublishedFileDetails> filtered = await Filter(response);
+        int totalFalsePositives = 0;
 
         logger.LogInformation("Processing {Count} items", filtered.Count);
         foreach (PublishedFileDetails publishedFileDetails in filtered)
@@ -143,19 +144,115 @@ public class Worker : BackgroundService
             List<string> files = Directory
                 .EnumerateFiles(steamOptions.MountDestination, "*.zeeplevel", SearchOption.AllDirectories).ToList();
 
+            await DeleteMissingLevels(publishedFileDetails, files);
+
+            int falsePositives = 0;
             foreach (string path in files)
             {
                 logger.LogInformation("Processing '{Path}'", path);
-                await ProcessItem(path,
+                Result<bool> processResult = await ProcessItem(path,
                     publishedFileDetails,
                     publishedFileDetails.PublishedFileId,
                     stoppingToken);
+
+                if (processResult.IsFailed)
+                {
+                    logger.LogError("Unable to process item: {Result}", processResult);
+                }
+                else if (!processResult.Value)
+                {
+                    falsePositives++;
+                }
+            }
+
+            if (falsePositives == files.Count)
+            {
+                totalFalsePositives++;
+                await EnsureFalsePositivesTimeUpdated(publishedFileDetails, files);
             }
 
             Directory.Delete(steamOptions.MountDestination, true);
         }
 
-        return filtered.Count == 0;
+        return filtered.Count - totalFalsePositives == 0;
+    }
+
+    private async Task DeleteMissingLevels(PublishedFileDetails publishedFileDetails, List<string> files)
+    {
+        Result<IEnumerable<LevelResponseModel>> result =
+            await apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
+
+        if (result.IsFailed)
+        {
+            logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
+            return;
+        }
+
+        List<(string uid, string hash)> fileData = new();
+
+        foreach (string file in files)
+        {
+            string uid = await GetUidFromFile(file, CancellationToken.None);
+            string textToHash = await GetTextToHash(file, CancellationToken.None);
+            string hash = Hash(textToHash);
+            fileData.Add((uid, hash));
+        }
+
+        foreach (LevelResponseModel levelResponseModel in result.Value)
+        {
+            bool foundLevelInFile = false;
+
+            foreach ((string uid, string hash) in fileData)
+            {
+                if (levelResponseModel.FileUid == uid && levelResponseModel.FileHash == hash)
+                {
+                    foundLevelInFile = true;
+                    break;
+                }
+            }
+
+            if (foundLevelInFile)
+                continue;
+
+            Result<LevelResponseModel> deleteResult = await apiClient.DeleteLevel(levelResponseModel.Id);
+
+            if (deleteResult.IsFailed)
+            {
+                logger.LogError("Unable to delete level: {Result}", deleteResult.ToString());
+            }
+        }
+    }
+
+    private async Task EnsureFalsePositivesTimeUpdated(PublishedFileDetails publishedFileDetails, List<string> files)
+    {
+        Result<IEnumerable<LevelResponseModel>> result =
+            await apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
+
+        if (!result.IsSuccess)
+        {
+            logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
+            return;
+        }
+
+        bool sameAmount = result.Value.Count() == files.Count;
+
+        if (sameAmount)
+            return;
+
+        foreach (LevelResponseModel levelResponseModel in result.Value)
+        {
+            if (levelResponseModel.UpdatedAt == publishedFileDetails.TimeUpdated)
+                continue;
+
+            Result<LevelResponseModel> updateResult = await apiClient.UpdateLevelTime(
+                levelResponseModel.Id,
+                new DateTimeOffset(publishedFileDetails.TimeUpdated).ToUnixTimeSeconds());
+
+            if (updateResult.IsFailed)
+            {
+                logger.LogError("Unable to update level time: {Result}", updateResult.ToString());
+            }
+        }
     }
 
     private async Task<List<PublishedFileDetails>> Filter(Response response)
@@ -184,7 +281,7 @@ public class Worker : BackgroundService
                 {
                     addToFiltered = true;
                 }
-                
+
                 if (model.CreatedAt < details.TimeCreated)
                 {
                     addToFiltered = true;
@@ -200,7 +297,7 @@ public class Worker : BackgroundService
         return filtered;
     }
 
-    private async Task ProcessItem(
+    private async Task<Result<bool>> ProcessItem(
         string path,
         PublishedFileDetails item,
         string workshopId,
@@ -218,20 +315,19 @@ public class Worker : BackgroundService
         Result<IEnumerable<LevelResponseModel>> getLevelsResult = await apiClient.GetLevelsByWorkshopId(workshopId);
         if (getLevelsResult.IsFailedWithNotFound())
         {
-            await HandleNewLevel(path, item, filename, stoppingToken);
+            return await HandleNewLevel(path, item, filename, stoppingToken);
         }
-        else if (getLevelsResult.IsSuccess)
+
+        if (getLevelsResult.IsSuccess)
         {
-            await HandleExistingItem(path, item, getLevelsResult, filename, stoppingToken);
+            return await HandleExistingItem(path, item, getLevelsResult, filename, stoppingToken);
         }
-        else
-        {
-            logger.LogCritical("Unable to get levels from API; Result: {Result}", getLevelsResult.ToString());
-            throw new Exception();
-        }
+
+        logger.LogCritical("Unable to get levels from API; Result: {Result}", getLevelsResult.ToString());
+        throw new Exception();
     }
 
-    private async Task HandleNewLevel(
+    private async Task<Result<bool>> HandleNewLevel(
         string path,
         PublishedFileDetails item,
         string filename,
@@ -240,15 +336,17 @@ public class Worker : BackgroundService
     {
         try
         {
-            await CreateNewLevel(path, filename, item, stoppingToken);
+            Result<int> createResult = await CreateNewLevel(path, filename, item, stoppingToken);
+            return createResult.IsSuccess ? Result.Ok(true) : createResult.ToResult();
         }
         catch (Exception e)
         {
             logger.LogError(e, "Unable to create new level");
+            return Result.Fail(new ExceptionalError(e));
         }
     }
 
-    private async Task HandleExistingItem(
+    private async Task<Result<bool>> HandleExistingItem(
         string path,
         PublishedFileDetails item,
         Result<IEnumerable<LevelResponseModel>> getLevelsResult,
@@ -263,24 +361,26 @@ public class Worker : BackgroundService
         {
             try
             {
-                await CreateNewLevel(path, filename, item, stoppingToken);
+                Result<int> createResult = await CreateNewLevel(path, filename, item, stoppingToken);
+                return createResult.IsSuccess ? Result.Ok(true) : createResult.ToResult();
             }
             catch (Exception e)
             {
                 logger.LogError(e, "Unable to create new level");
+                return Result.Fail(new ExceptionalError(e));
             }
         }
-        else if (item.TimeCreated > existingItem.CreatedAt || item.TimeUpdated > existingItem.UpdatedAt)
+
+        if (item.TimeCreated > existingItem.CreatedAt || item.TimeUpdated > existingItem.UpdatedAt)
         {
-            await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
+            return await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
         }
-        else
-        {
-            logger.LogInformation("Received item isn't newer than the existing item, skipping");
-        }
+
+        logger.LogInformation("Received item isn't newer than the existing item, skipping");
+        return Result.Ok(false);
     }
 
-    private async Task<int> CreateNewLevel(
+    private async Task<Result<int>> CreateNewLevel(
         string path,
         string filename,
         PublishedFileDetails item,
@@ -290,7 +390,7 @@ public class Worker : BackgroundService
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
         if (lines.Length == 0)
         {
-            throw new InvalidDataException("Level file is empty");
+            return Result.Fail(new ExceptionalError(new InvalidDataException("Level file is empty")));
         }
 
         string[] splits = lines[0].Split(',');
@@ -341,7 +441,7 @@ public class Worker : BackgroundService
 
         if (uploadLevelResult.IsFailed)
         {
-            throw new Exception();
+            return uploadLevelResult.ToResult();
         }
 
         Result<string> uploadThumbnailResult;
@@ -354,7 +454,7 @@ public class Worker : BackgroundService
 
             if (uploadThumbnailResult.IsFailed)
             {
-                throw new Exception();
+                return uploadThumbnailResult.ToResult();
             }
         }
         else
@@ -384,7 +484,7 @@ public class Worker : BackgroundService
 
         if (createLevelResult.IsFailed)
         {
-            throw new Exception();
+            return createLevelResult.ToResult();
         }
 
         logger.LogInformation("Created level [{LevelId} ({WorkshopId})] {Name} by {Author} ({AuthorId})",
@@ -447,7 +547,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ReplaceExistingLevel(
+    private async Task<Result<bool>> ReplaceExistingLevel(
         LevelResponseModel existingItem,
         string path,
         string filename,
@@ -455,28 +555,60 @@ public class Worker : BackgroundService
         CancellationToken stoppingToken
     )
     {
+        int existingId = existingItem.Id;
         string newUid = await GetUidFromFile(path, stoppingToken);
+
         if (string.Equals(existingItem.FileUid, newUid))
         {
-            logger.LogInformation("False positive for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
-            return;
+            if (existingItem.UpdatedAt == item.TimeUpdated)
+            {
+                logger.LogInformation("False positive for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+                return Result.Ok(false);
+            }
+
+            if (existingItem.UpdatedAt < item.TimeUpdated)
+            {
+                string textToHash = await GetTextToHash(path, stoppingToken);
+                string newFileHash = Hash(textToHash);
+
+                if (newFileHash == existingItem.FileHash)
+                {
+                    Result<LevelResponseModel> updateResult = await apiClient.UpdateLevelTime(existingId,
+                        new DateTimeOffset(item.TimeUpdated).ToUnixTimeSeconds());
+
+                    return updateResult.IsSuccess ? Result.Ok(false) : updateResult.ToResult();
+                }
+
+                logger.LogError("Hashes don't match for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+                return Result.Ok(false);
+            }
+
+            if (existingItem.UpdatedAt > item.TimeUpdated)
+            {
+                logger.LogInformation("False positive for {Filename} ({WorkshopId}), ours is newer somehow",
+                    filename,
+                    item.PublishedFileId);
+                return Result.Ok(false);
+            }
         }
 
         int newId;
 
         try
         {
-            newId = await CreateNewLevel(path, filename, item, stoppingToken);
+            Result<int> createResult = await CreateNewLevel(path, filename, item, stoppingToken);
+            if (createResult.IsFailed)
+                return createResult.ToResult();
+
+            newId = createResult.Value;
         }
         catch (Exception e)
         {
             logger.LogError(e, "Unable to create new level");
-            return;
+            return Result.Fail(new ExceptionalError(e));
         }
 
-        int existingId = existingItem.Id;
-
-        Result<LevelResponseModel> result = await apiClient.UpdateLevel(existingId, newId);
+        Result<LevelResponseModel> result = await apiClient.ReplaceLevel(existingId, newId);
 
         if (result.IsFailed)
         {
@@ -485,10 +617,11 @@ public class Worker : BackgroundService
                 newId,
                 result.ToString());
 
-            throw new Exception();
+            return result.ToResult();
         }
 
         logger.LogInformation("Replaced level {ExistingId} with {NewId}", existingId, newId);
+        return Result.Ok(true);
     }
 
     private static async Task<string> GetUidFromFile(string path, CancellationToken stoppingToken)

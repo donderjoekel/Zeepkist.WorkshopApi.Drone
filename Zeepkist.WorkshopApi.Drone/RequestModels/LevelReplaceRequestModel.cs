@@ -1,6 +1,6 @@
 ﻿namespace Zeepkist.WorkshopApi.Drone.RequestModels;
 
-public class LevelPutRequestModel
+public class LevelReplaceRequestModel
 {
     public int Replacement { get; set; }
 }
