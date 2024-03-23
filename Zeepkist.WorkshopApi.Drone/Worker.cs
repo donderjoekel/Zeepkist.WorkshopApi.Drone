@@ -51,8 +51,8 @@ public class Worker : BackgroundService
 
             try
             {
-                await ExecuteByModified(stoppingToken);
-                await ExecuteByCreated(stoppingToken);
+                await Execute(true, stoppingToken);
+                await Execute(false, stoppingToken);
 
                 timeToWait = 5;
                 logger.LogInformation("Waiting 1 minute before checking again");
@@ -72,50 +72,15 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ExecuteByCreated(CancellationToken stoppingToken)
+    private async Task Execute(bool byModified, CancellationToken stoppingToken)
     {
         string cursor = "*";
-
-        Result<LevelResponseModel> lastCreatedResult = await apiClient.GetLastCreated();
-        if (lastCreatedResult.IsFailed)
-        {
-            logger.LogError("Unable to get last created: {Result}", lastCreatedResult.ToString());
-            return;
-        }
-
         int amountEmpty = 0;
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
             logger.LogInformation("Getting page {Cursor}", cursor);
-            Response response = await steamClient.GetResponse(cursor, false, stoppingToken);
-
-            if (await ProcessResponse(response, stoppingToken))
-                amountEmpty++;
-            else
-                amountEmpty = 0;
-
-            cursor = response.NextCursor;
-        }
-    }
-
-    private async Task ExecuteByModified(CancellationToken stoppingToken)
-    {
-        string cursor = "*";
-
-        Result<LevelResponseModel> lastUpdatedResult = await apiClient.GetLastUpdated();
-        if (lastUpdatedResult.IsFailed)
-        {
-            logger.LogError("Unable to get last updated: {Result}", lastUpdatedResult.ToString());
-            return;
-        }
-
-        int amountEmpty = 0;
-
-        while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
-        {
-            logger.LogInformation("Getting page {Cursor}", cursor);
-            Response response = await steamClient.GetResponse(cursor, true, stoppingToken);
+            Response response = await steamClient.GetResponse(cursor, byModified, stoppingToken);
 
             if (await ProcessResponse(response, stoppingToken))
                 amountEmpty++;
@@ -182,6 +147,11 @@ public class Worker : BackgroundService
         Result<IEnumerable<LevelResponseModel>> result =
             await apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
 
+        if (result.IsFailedWithNotFound())
+        {
+            return;
+        }
+        
         if (result.IsFailed)
         {
             logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
@@ -387,6 +357,12 @@ public class Worker : BackgroundService
         CancellationToken stoppingToken
     )
     {
+        Result<string> metadataResult = await CreateMetadata(path, filename, item, stoppingToken);
+        if (metadataResult.IsFailed)
+        {
+            return metadataResult.ToResult();
+        }
+
         string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
         if (lines.Length == 0)
         {
@@ -402,15 +378,6 @@ public class Worker : BackgroundService
             logger.LogWarning("Author for {Filename} ({WorkshopId}) is empty", filename, item.PublishedFileId);
             author = "[Unknown]";
         }
-
-        ParseTimes(filename,
-            item,
-            lines[2].Split(','),
-            out bool valid,
-            out float parsedValidation,
-            out float parsedGold,
-            out float parsedSilver,
-            out float parsedBronze);
 
         string hash = Hash(await GetTextToHash(path, stoppingToken));
         string sourceDirectory = Path.GetDirectoryName(path)!;
@@ -492,56 +459,6 @@ public class Worker : BackgroundService
         return createLevelResult.Value.Id;
     }
 
-    private void ParseTimes(
-        string filename,
-        PublishedFileDetails item,
-        string[] splits,
-        out bool valid,
-        out float parsedValidation,
-        out float parsedGold,
-        out float parsedSilver,
-        out float parsedBronze
-    )
-    {
-        parsedValidation = 0;
-        parsedGold = 0;
-        parsedSilver = 0;
-        parsedBronze = 0;
-
-        valid = false;
-
-        if (splits.Length >= 4)
-        {
-            valid = float.TryParse(splits[0], out parsedValidation) &&
-                    float.TryParse(splits[1], out parsedGold) &&
-                    float.TryParse(splits[2], out parsedSilver) &&
-                    float.TryParse(splits[3], out parsedBronze);
-        }
-        else
-        {
-            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
-        }
-
-        if (valid)
-        {
-            if (float.IsNaN(parsedValidation) || float.IsInfinity(parsedValidation) ||
-                float.IsNaN(parsedGold) || float.IsInfinity(parsedGold) ||
-                float.IsNaN(parsedSilver) || float.IsInfinity(parsedSilver) ||
-                float.IsNaN(parsedBronze) || float.IsInfinity(parsedBronze))
-            {
-                valid = false;
-            }
-        }
-
-        if (!valid)
-        {
-            parsedValidation = 0;
-            parsedGold = 0;
-            parsedSilver = 0;
-            parsedBronze = 0;
-        }
-    }
-
     private async Task<Result<bool>> ReplaceExistingLevel(
         LevelResponseModel existingItem,
         string path,
@@ -585,6 +502,9 @@ public class Worker : BackgroundService
                     item.PublishedFileId);
                 return Result.Ok(false);
             }
+
+            throw new Exception(
+                "I'm not sure when this would exactly happen, but it's here just in case");
         }
 
         int newId;
@@ -646,6 +566,172 @@ public class Worker : BackgroundService
         {
             // can be "x2" if you want lowercase
             sb.Append(b.ToString("X2"));
+        }
+
+        return sb.ToString();
+    }
+
+    private async Task<Result<string>> CreateMetadata(
+        string path,
+        string filename,
+        PublishedFileDetails item,
+        CancellationToken stoppingToken
+    )
+    {
+        string hash = Hash(await GetTextToHash(path, stoppingToken));
+
+        Result<MetadataResponseModel> result = await apiClient.GetMetadataByHash(hash);
+
+        if (result.IsSuccess)
+        {
+            return result.Value.Hash;
+        }
+
+        if (!result.IsFailedWithNotFound())
+        {
+            return result.ToResult();
+        }
+        
+        string[] lines = await File.ReadAllLinesAsync(path, stoppingToken);
+        if (lines.Length == 0)
+        {
+            return Result.Fail(new ExceptionalError(new InvalidDataException("Level file is empty")));
+        }
+        
+        string[] splits = lines[2].Split(',');
+        
+        ParseTimes(filename,
+            item,
+            splits,
+            out bool validTime,
+            out float parsedValidation,
+            out float parsedGold,
+            out float parsedSilver,
+            out float parsedBronze);
+
+        int skybox;
+        int ground;
+        
+        if (splits.Length != 6)
+        {
+            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            skybox = int.MaxValue;
+            ground = int.MaxValue;
+        }
+        else
+        {
+            skybox = int.Parse(splits[^2]);
+            ground = int.Parse(splits[^1]);
+        }
+
+        string blocks = GetBlocks(path, out int amountOfCheckpoints, out bool validBlocks)
+            .TrimEnd('|');
+        
+        bool valid = validTime && validBlocks;
+
+        Result<MetadataResponseModel> metadata = await apiClient.CreateMetadata(builder =>
+        {
+            builder
+                .WithHash(hash)
+                .WithCheckpoints(amountOfCheckpoints)
+                .WithBlocks(blocks)
+                .WithValid(valid)
+                .WithValidation(parsedValidation)
+                .WithGold(parsedGold)
+                .WithSilver(parsedSilver)
+                .WithBronze(parsedBronze)
+                .WithGround(ground)
+                .WithSkybox(skybox);
+        });
+
+        if (metadata.IsFailed)
+        {
+            return metadata.ToResult();
+        }
+
+        return metadata.Value.Hash;
+    }
+
+    private void ParseTimes(
+        string filename,
+        PublishedFileDetails item,
+        string[] splits,
+        out bool valid,
+        out float parsedValidation,
+        out float parsedGold,
+        out float parsedSilver,
+        out float parsedBronze
+    )
+    {
+        parsedValidation = 0;
+        parsedGold = 0;
+        parsedSilver = 0;
+        parsedBronze = 0;
+
+        valid = false;
+
+        if (splits.Length >= 4)
+        {
+            valid = float.TryParse(splits[0], out parsedValidation) &&
+                    float.TryParse(splits[1], out parsedGold) &&
+                    float.TryParse(splits[2], out parsedSilver) &&
+                    float.TryParse(splits[3], out parsedBronze);
+        }
+        else
+        {
+            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+        }
+
+        if (valid)
+        {
+            if (float.IsNaN(parsedValidation) || float.IsInfinity(parsedValidation) ||
+                float.IsNaN(parsedGold) || float.IsInfinity(parsedGold) ||
+                float.IsNaN(parsedSilver) || float.IsInfinity(parsedSilver) ||
+                float.IsNaN(parsedBronze) || float.IsInfinity(parsedBronze))
+            {
+                valid = false;
+            }
+        }
+
+        if (!valid)
+        {
+            parsedValidation = 0;
+            parsedGold = 0;
+            parsedSilver = 0;
+            parsedBronze = 0;
+        }
+    }
+    
+    private static readonly string[] starts = new[]{ "1","1363" };
+    private static readonly string[] finishes = new[] { "2", "1273", "1274", "1616" };
+    private static readonly string[] checkpoints = new[] { "22", "372", "373", "1275", "1276", "1277", "1278", "1279" };
+
+    private string GetBlocks(string path, out int amountOfCheckpoints, out bool valid)
+    {
+        
+        string[] lines = File.ReadAllLines(path).Skip(3).ToArray();
+
+        Dictionary<string, int> blocks = new();
+
+        foreach (string line in lines)
+        {
+            string blockId = line[..line.IndexOf(',')];
+            blocks.TryAdd(blockId, 0);
+            blocks[blockId]++;
+        }
+
+        valid = blocks.Where(x => starts.Contains(x.Key)).Sum(x => x.Value) == 1 &&
+                blocks.Where(x => finishes.Contains(x.Key)).Sum(x => x.Value) >= 1;
+        
+        amountOfCheckpoints = blocks.Where(x => checkpoints.Contains(x.Key)).Sum(x => x.Value);
+        
+        StringBuilder sb = new();
+        foreach (KeyValuePair<string, int> kvp in blocks)
+        {
+            sb.Append(kvp.Key);
+            sb.Append(':');
+            sb.Append(kvp.Value);
+            sb.Append('|');
         }
 
         return sb.ToString();
