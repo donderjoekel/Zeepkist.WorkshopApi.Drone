@@ -74,8 +74,7 @@ public class Worker : BackgroundService
 
     private async Task ExecuteByCreated(CancellationToken stoppingToken)
     {
-        int page = 1;
-        int totalPages = await steamClient.GetTotalPages(false, stoppingToken);
+        string cursor = "*";
 
         Result<LevelResponseModel> lastCreatedResult = await apiClient.GetLastCreated();
         if (lastCreatedResult.IsFailed)
@@ -88,22 +87,21 @@ public class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
-            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-            Response response = await steamClient.GetResponse(page, false, stoppingToken);
+            logger.LogInformation("Getting page {Cursor}", cursor);
+            Response response = await steamClient.GetResponse(cursor, false, stoppingToken);
 
             if (await ProcessResponse(response, stoppingToken))
                 amountEmpty++;
             else
                 amountEmpty = 0;
 
-            page++;
+            cursor = response.NextCursor;
         }
     }
 
     private async Task ExecuteByModified(CancellationToken stoppingToken)
     {
-        int page = 1;
-        int totalPages = await steamClient.GetTotalPages(true, stoppingToken);
+        string cursor = "*";
 
         Result<LevelResponseModel> lastUpdatedResult = await apiClient.GetLastUpdated();
         if (lastUpdatedResult.IsFailed)
@@ -116,15 +114,15 @@ public class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
-            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-            Response response = await steamClient.GetResponse(page, true, stoppingToken);
+            logger.LogInformation("Getting page {Cursor}", cursor);
+            Response response = await steamClient.GetResponse(cursor, true, stoppingToken);
 
             if (await ProcessResponse(response, stoppingToken))
                 amountEmpty++;
             else
                 amountEmpty = 0;
 
-            page++;
+            cursor = response.NextCursor;
         }
     }
 

@@ -62,16 +62,15 @@ public class SteamClient
         return responseWrapper.Response;
     }
 
-    public async Task<Response> GetResponse(int page, bool byModified, CancellationToken stoppingToken)
+    public async Task<Response> GetResponse(string cursor, bool byModified, CancellationToken stoppingToken)
     {
-        int actualPage = page;
 
         Dictionary<string, string> query = new()
         {
             { "key", options.Key },
             { "query_type", byModified ? "21" : "1" },
             { "appid", "1440670" },
-            { "page", actualPage.ToString() },
+            { "cursor", cursor },
             { "numperpage", ITEMS_PER_PAGE.ToString() },
             { "return_metadata", "true" },
             { "format", "json" }
