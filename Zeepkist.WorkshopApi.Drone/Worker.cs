@@ -135,12 +135,14 @@ public class Worker : BackgroundService
         logger.LogInformation("Processing {Count} items", filtered.Count);
         foreach (PublishedFileDetails publishedFileDetails in filtered)
         {
+            string guid = Guid.NewGuid().ToString().Replace("-", "");
+            string destination = Path.Combine(steamOptions.MountDestination, guid);
+            
             logger.LogInformation("Downloading {WorkshopId}", publishedFileDetails.PublishedFileId);
-            await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId,
-                steamOptions.MountDestination);
+            await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId, destination);
 
-            List<string> files = Directory
-                .EnumerateFiles(steamOptions.MountDestination, "*.zeeplevel", SearchOption.AllDirectories).ToList();
+            List<string> files = Directory.EnumerateFiles(destination, "*.zeeplevel", SearchOption.AllDirectories)
+                .ToList();
 
             await DeleteMissingLevels(publishedFileDetails, files);
 
@@ -169,7 +171,7 @@ public class Worker : BackgroundService
                 await EnsureFalsePositivesTimeUpdated(publishedFileDetails, files);
             }
 
-            Directory.Delete(steamOptions.MountDestination, true);
+            Directory.Delete(destination, true);
         }
 
         return filtered.Count - totalFalsePositives == 0;
