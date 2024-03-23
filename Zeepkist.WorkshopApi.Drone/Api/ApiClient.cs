@@ -26,6 +26,20 @@ public class ApiClient
     {
         return await Get<IEnumerable<LevelResponseModel>>("levels/workshop/" + workshopId);
     }
+    
+    public Task<Result<MetadataResponseModel>> GetMetadataByHash(string hash)
+    {
+        return Get<MetadataResponseModel>("metadata/" + hash);
+    }
+
+    public Task<Result<MetadataResponseModel>> CreateMetadata(Action<MetadataPostRequestModelBuilder> builder)
+    {
+        MetadataPostRequestModelBuilder actualBuilder = new();
+        builder.Invoke(actualBuilder);
+        MetadataPostRequestModel model = actualBuilder.Build();
+        
+        return Post<MetadataResponseModel>("metadata", model);
+    }
 
     public async Task<Result<LevelResponseModel>> CreateLevel(Action<LevelPostRequestModelBuilder> builder)
     {
