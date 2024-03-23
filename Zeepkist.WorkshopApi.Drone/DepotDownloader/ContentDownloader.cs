@@ -31,7 +31,7 @@ namespace DepotDownloader
         private static CDNClientPool cdnPool;
 
         private const string DEFAULT_DOWNLOAD_DIR = "depots";
-        private const string CONFIG_DIR = "..\\.DepotDownloader";
+        private const string CONFIG_DIR = "../.DepotDownloader";
         private static readonly string STAGING_DIR = Path.Combine(CONFIG_DIR, "staging");
 
         private sealed class DepotDownloadInfo
