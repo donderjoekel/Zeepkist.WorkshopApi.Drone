@@ -474,12 +474,7 @@ public class Worker : BackgroundService
                 .WithFileUrl(uploadLevelResult.Value)
                 .WithFileUid(uid)
                 .WithFileHash(hash)
-                .WithFileAuthor(author)
-                .WithValid(valid)
-                .WithValidation(parsedValidation)
-                .WithGold(parsedGold)
-                .WithSilver(parsedSilver)
-                .WithBronze(parsedBronze);
+                .WithFileAuthor(author);
         });
 
         if (createLevelResult.IsFailed)

@@ -15,9 +15,4 @@ public class LevelPostRequestModel
     public string FileUid { get; set; } = null!;
     public string FileHash { get; set; } = null!;
     public string FileAuthor { get; set; } = null!;
-    public bool Valid { get; set; }
-    public float Validation { get; set; }
-    public float Gold { get; set; }
-    public float Silver { get; set; }
-    public float Bronze { get; set; }
 }
