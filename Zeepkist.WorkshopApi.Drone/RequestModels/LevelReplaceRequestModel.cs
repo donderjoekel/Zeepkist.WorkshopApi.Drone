@@ -1,4 +1,4 @@
-﻿namespace Zeepkist.WorkshopApi.Drone.RequestModels;
+﻿namespace TNRD.Zeepkist.WorkshopApi.Drone.RequestModels;
 
 public class LevelReplaceRequestModel
 {

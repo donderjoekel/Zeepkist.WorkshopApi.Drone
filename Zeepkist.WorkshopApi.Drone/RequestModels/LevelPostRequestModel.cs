@@ -1,6 +1,6 @@
 ﻿using FluentBuilder;
 
-namespace Zeepkist.WorkshopApi.Drone.RequestModels;
+namespace TNRD.Zeepkist.WorkshopApi.Drone.RequestModels;
 
 [AutoGenerateBuilder]
 public class LevelPostRequestModel
