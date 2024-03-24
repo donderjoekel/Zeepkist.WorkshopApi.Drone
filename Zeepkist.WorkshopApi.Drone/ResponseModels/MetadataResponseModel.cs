@@ -2,6 +2,7 @@
 
 public class MetadataResponseModel
 {
+    public int Id { get; set; }
     public string Hash { get; set; } = null!;
     public int Checkpoints { get; set; }
     public string Blocks { get; set; } = null!;
