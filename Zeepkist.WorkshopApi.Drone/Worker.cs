@@ -51,8 +51,8 @@ public class Worker : BackgroundService
 
             try
             {
-                await Execute(true, stoppingToken);
                 await Execute(false, stoppingToken);
+                await Execute(true, stoppingToken);
 
                 timeToWait = 5;
                 logger.LogInformation("Waiting 1 minute before checking again");
@@ -74,20 +74,43 @@ public class Worker : BackgroundService
 
     private async Task Execute(bool byModified, CancellationToken stoppingToken)
     {
+        // TEMP
         string cursor = "*";
         int amountEmpty = 0;
+        int page = 0;
+
+        int totalPages = await steamClient.GetTotalPages(byModified, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
-            logger.LogInformation("Getting page {Cursor}", cursor);
-            Response response = await steamClient.GetResponse(cursor, byModified, stoppingToken);
+            // logger.LogInformation("Getting page {Cursor}", cursor);
+            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+            // Response response = await steamClient.GetResponse(cursor, byModified, stoppingToken);
+            Response response = await steamClient.GetResponse(page, byModified, stoppingToken);
+
+            if (response.PublishedFileDetails.Length == 0)
+            {
+                logger.LogInformation("No more items, breaking loop");
+                break;
+            }
 
             if (await ProcessResponse(response, stoppingToken))
                 amountEmpty++;
             else
                 amountEmpty = 0;
+            
+            // TEMP
+            amountEmpty = 0;
 
-            cursor = response.NextCursor;
+            // cursor = response.NextCursor;
+            page++;
+            
+            //TEMP
+            if (page > totalPages)
+            {
+                logger.LogInformation("Reached end of pages");
+                break;
+            }
         }
     }
 
