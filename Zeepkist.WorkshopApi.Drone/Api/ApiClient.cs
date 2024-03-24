@@ -29,7 +29,7 @@ public class ApiClient
     
     public Task<Result<MetadataResponseModel>> GetMetadataByHash(string hash)
     {
-        return Get<MetadataResponseModel>("metadata/" + hash);
+        return Get<MetadataResponseModel>("metadata/hash/" + hash);
     }
 
     public Task<Result<MetadataResponseModel>> CreateMetadata(Action<MetadataPostRequestModelBuilder> builder)
