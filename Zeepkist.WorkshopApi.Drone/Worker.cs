@@ -357,7 +357,7 @@ public class Worker : BackgroundService
         CancellationToken stoppingToken
     )
     {
-        Result<string> metadataResult = await CreateMetadata(path, filename, item, stoppingToken);
+        Result<int> metadataResult = await CreateMetadata(path, filename, item, stoppingToken);
         if (metadataResult.IsFailed)
         {
             return metadataResult.ToResult();
@@ -441,7 +441,8 @@ public class Worker : BackgroundService
                 .WithFileUrl(uploadLevelResult.Value)
                 .WithFileUid(uid)
                 .WithFileHash(hash)
-                .WithFileAuthor(author);
+                .WithFileAuthor(author)
+                .WithMetadataId(metadataResult.Value);
         });
 
         if (createLevelResult.IsFailed)
@@ -571,7 +572,7 @@ public class Worker : BackgroundService
         return sb.ToString();
     }
 
-    private async Task<Result<string>> CreateMetadata(
+    private async Task<Result<int>> CreateMetadata(
         string path,
         string filename,
         PublishedFileDetails item,
@@ -584,7 +585,7 @@ public class Worker : BackgroundService
 
         if (result.IsSuccess)
         {
-            return result.Value.Hash;
+            return result.Value.Id;
         }
 
         if (!result.IsFailedWithNotFound())
@@ -626,6 +627,12 @@ public class Worker : BackgroundService
 
         string blocks = GetBlocks(path, out int amountOfCheckpoints, out bool validBlocks)
             .TrimEnd('|');
+
+        if (string.IsNullOrEmpty(blocks))
+        {
+            logger.LogError("No blocks found in level {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            return Result.Fail(new ExceptionalError(new Exception("No blocks found in level")));
+        }
         
         bool valid = validTime && validBlocks;
 
@@ -649,7 +656,7 @@ public class Worker : BackgroundService
             return metadata.ToResult();
         }
 
-        return metadata.Value.Hash;
+        return metadata.Value.Id;
     }
 
     private void ParseTimes(
