@@ -14,7 +14,7 @@ namespace TNRD.Zeepkist.WorkshopApi.Drone;
 
 public class Worker : BackgroundService
 {
-    private const int MAX_EMPTY_PAGES = 5;
+    private const int MAX_EMPTY_PAGES = 10;
 
     private readonly ILogger<Worker> logger;
     private readonly ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger;
@@ -98,19 +98,9 @@ public class Worker : BackgroundService
                 amountEmpty++;
             else
                 amountEmpty = 0;
-            
-            // TEMP
-            amountEmpty = 0;
 
             // cursor = response.NextCursor;
             page++;
-            
-            //TEMP
-            if (page > totalPages)
-            {
-                logger.LogInformation("Reached end of pages");
-                break;
-            }
         }
     }
 
