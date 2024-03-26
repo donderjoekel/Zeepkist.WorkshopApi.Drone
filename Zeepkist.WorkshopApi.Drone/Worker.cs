@@ -77,7 +77,7 @@ public class Worker : BackgroundService
         // TEMP
         string cursor = "*";
         int amountEmpty = 0;
-        int page = 0;
+        int page = 978;
 
         int totalPages = await steamClient.GetTotalPages(byModified, stoppingToken);
 
@@ -738,13 +738,18 @@ public class Worker : BackgroundService
 
     private string GetBlocks(string path, out int amountOfCheckpoints, out bool valid)
     {
-        
         string[] lines = File.ReadAllLines(path).Skip(3).ToArray();
 
         Dictionary<string, int> blocks = new();
 
         foreach (string line in lines)
         {
+            if (!line.Contains(','))
+            {
+                logger.LogWarning("Invalid line in level ({Path}): '{Line}'", path, line);
+                continue;
+            }
+            
             string blockId = line[..line.IndexOf(',')];
             blocks.TryAdd(blockId, 0);
             blocks[blockId]++;
