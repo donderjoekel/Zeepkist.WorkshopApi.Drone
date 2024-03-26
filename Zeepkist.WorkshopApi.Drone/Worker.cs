@@ -77,7 +77,7 @@ public class Worker : BackgroundService
         // TEMP
         string cursor = "*";
         int amountEmpty = 0;
-        int page = 978;
+        int page = 0;
 
         int totalPages = await steamClient.GetTotalPages(byModified, stoppingToken);
 
@@ -98,19 +98,9 @@ public class Worker : BackgroundService
                 amountEmpty++;
             else
                 amountEmpty = 0;
-            
-            // TEMP
-            amountEmpty = 0;
 
             // cursor = response.NextCursor;
             page++;
-            
-            //TEMP
-            if (page > totalPages)
-            {
-                logger.LogInformation("Reached end of pages");
-                break;
-            }
         }
     }
 
