@@ -51,8 +51,8 @@ public class Worker : BackgroundService
 
             try
             {
-                await Execute(false, stoppingToken);
                 await Execute(true, stoppingToken);
+                await Execute(false, stoppingToken);
 
                 timeToWait = 5;
                 logger.LogInformation("Waiting 1 minute before checking again");
@@ -98,9 +98,19 @@ public class Worker : BackgroundService
                 amountEmpty++;
             else
                 amountEmpty = 0;
+            
+            // TEMP
+            amountEmpty = 0;
 
             // cursor = response.NextCursor;
             page++;
+            
+            //TEMP
+            if (page > totalPages)
+            {
+                logger.LogInformation("Reached end of pages");
+                break;
+            }
         }
     }
 
