@@ -7,7 +7,7 @@ namespace TNRD.Zeepkist.WorkshopApi.Drone.Steam;
 
 public class SteamClient
 {
-    private const int ITEMS_PER_PAGE = 25;
+    private const int ITEMS_PER_PAGE = 5;
 
     private readonly HttpClient httpClient;
     private readonly SteamOptions options;

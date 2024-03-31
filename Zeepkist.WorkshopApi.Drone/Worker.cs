@@ -74,8 +74,6 @@ public class Worker : BackgroundService
 
     private async Task Execute(bool byModified, CancellationToken stoppingToken)
     {
-        // TEMP
-        string cursor = "*";
         int amountEmpty = 0;
         int page = 0;
 
@@ -83,9 +81,7 @@ public class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MAX_EMPTY_PAGES)
         {
-            // logger.LogInformation("Getting page {Cursor}", cursor);
             logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-            // Response response = await steamClient.GetResponse(cursor, byModified, stoppingToken);
             Response response = await steamClient.GetResponse(page, byModified, stoppingToken);
 
             if (response.PublishedFileDetails.Length == 0)
@@ -99,19 +95,22 @@ public class Worker : BackgroundService
             else
                 amountEmpty = 0;
 
-            // cursor = response.NextCursor;
             page++;
         }
+    }
+    
+    private async Task ExecuteSingle(string workshopId, CancellationToken stoppingToken)
+    {
+        Response response = await steamClient.GetResponse(workshopId, stoppingToken);
+        await ProcessResponse(response, stoppingToken);
     }
 
     private async Task<bool> ProcessResponse(Response response, CancellationToken stoppingToken)
     {
-        logger.LogInformation("Filtering items");
-        List<PublishedFileDetails> filtered = await Filter(response);
         int totalFalsePositives = 0;
 
-        logger.LogInformation("Processing {Count} items", filtered.Count);
-        foreach (PublishedFileDetails publishedFileDetails in filtered)
+        logger.LogInformation("Processing {Count} items", response.PublishedFileDetails.Length);
+        foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
         {
             string guid = Guid.NewGuid().ToString().Replace("-", "");
             string destination = Path.Combine(steamOptions.MountDestination, guid);
@@ -152,7 +151,7 @@ public class Worker : BackgroundService
             Directory.Delete(destination, true);
         }
 
-        return filtered.Count - totalFalsePositives == 0;
+        return response.PublishedFileDetails.Length - totalFalsePositives == 0;
     }
 
     private async Task DeleteMissingLevels(PublishedFileDetails publishedFileDetails, List<string> files)
