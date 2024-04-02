@@ -30,7 +30,7 @@ public abstract class BaseJob : IJob
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
-        SteamOptions steamOptions,
+        IOptions<SteamOptions> steamOptions,
         ILogger logger
     )
     {
@@ -38,7 +38,7 @@ public abstract class BaseJob : IJob
         this.steamClient = steamClient;
         this.apiClient = apiClient;
         this.uploadService = uploadService;
-        this.steamOptions = steamOptions;
+        this.steamOptions = steamOptions.Value;
         this.logger = logger;
     }
 

@@ -1,4 +1,5 @@
-﻿using Quartz;
+﻿using Microsoft.Extensions.Options;
+using Quartz;
 using TNRD.Zeepkist.WorkshopApi.Drone.Api;
 using TNRD.Zeepkist.WorkshopApi.Drone.Google;
 using TNRD.Zeepkist.WorkshopApi.Drone.Steam;
@@ -15,7 +16,7 @@ public class CreatedScanJob : BaseJob
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
-        SteamOptions steamOptions,
+        IOptions<SteamOptions> steamOptions,
         ILogger<CreatedScanJob> logger
     )
         : base(depotDownloaderLogger, steamClient, apiClient, uploadService, steamOptions, logger)
