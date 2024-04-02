@@ -49,7 +49,7 @@ IHost host = Host.CreateDefaultBuilder(args)
                 configure
                     .WithIdentity("CreatedScanJob")
                     .ForJob(CreatedScanJob.JobKey)
-                    .WithCronSchedule("0 0/1 * ? * * *");
+                    .WithCronSchedule("0 5/5 * ? * * *");
             });
             
             options.AddTrigger(configure =>
@@ -57,7 +57,7 @@ IHost host = Host.CreateDefaultBuilder(args)
                 configure
                     .WithIdentity("ModifiedScanJob")
                     .ForJob(ModifiedScanJob.JobKey)
-                    .WithCronSchedule("0 1/1 * ? * * *");
+                    .WithCronSchedule("0 10/5 * ? * * *");
             });
         });
 
