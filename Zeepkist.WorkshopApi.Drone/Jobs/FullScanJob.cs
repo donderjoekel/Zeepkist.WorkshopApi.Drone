@@ -26,8 +26,8 @@ public class FullScanJob : BaseJob
     protected override int MaxEmptyPages => int.MaxValue;
     protected override bool ByModified => false;
 
-    public override Task Execute(IJobExecutionContext context)
+    protected override Task ExecuteJob(CancellationToken stoppingToken)
     {
-        return Execute(context.CancellationToken);
+        return ExecuteMulti(stoppingToken);
     }
 }

@@ -47,7 +47,25 @@ public abstract class BaseJob : IJob
     protected abstract int MaxEmptyPages { get; }
     protected abstract bool ByModified { get; }
 
-    public abstract Task Execute(IJobExecutionContext context);
+    public async Task Execute(IJobExecutionContext context)
+    {
+        try
+        {
+            DepotDownloader.DepotDownloader.Initialize(_depotDownloaderLogger);
+            await ExecuteJob(context.CancellationToken);
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "An error occurred while executing job");
+        }
+        finally
+        {
+            DepotDownloader.DepotDownloader.Dispose();
+            GC.Collect();
+        }
+    }
+
+    protected abstract Task ExecuteJob(CancellationToken stoppingToken);
     
     protected async Task ExecuteSingle(string workshopId, CancellationToken stoppingToken)
     {
@@ -55,7 +73,7 @@ public abstract class BaseJob : IJob
         await ProcessResponse(response, stoppingToken);
     }
     
-    protected async Task Execute(CancellationToken stoppingToken)
+    protected async Task ExecuteMulti(CancellationToken stoppingToken)
     {
         int amountEmpty = 0;
         int page = 0;
