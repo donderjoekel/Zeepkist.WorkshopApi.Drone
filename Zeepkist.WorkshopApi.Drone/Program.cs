@@ -1,7 +1,9 @@
+using Quartz;
 using Serilog;
 using TNRD.Zeepkist.WorkshopApi.Drone;
 using TNRD.Zeepkist.WorkshopApi.Drone.Api;
 using TNRD.Zeepkist.WorkshopApi.Drone.Google;
+using TNRD.Zeepkist.WorkshopApi.Drone.Jobs;
 using TNRD.Zeepkist.WorkshopApi.Drone.Steam;
 
 IHost host = Host.CreateDefaultBuilder(args)
@@ -17,7 +19,47 @@ IHost host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((context, services) =>
     {
-        services.AddHostedService<Worker>();
+        // services.AddHostedService<Worker>();
+
+        services.AddQuartzHostedService(options =>
+        {
+            options.AwaitApplicationStarted = true;
+            options.WaitForJobsToComplete = true;
+        });
+
+        services.AddQuartz(options =>
+        {
+            options.AddJob<FullScanJob>(FullScanJob.JobKey, 
+                    configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
+            options.AddJob<CreatedScanJob>(CreatedScanJob.JobKey,
+                configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
+            options.AddJob<ModifiedScanJob>(ModifiedScanJob.JobKey,
+                configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
+            
+            options.AddTrigger(configure =>
+            {
+                configure
+                    .WithIdentity("FullScanJob")
+                    .ForJob(FullScanJob.JobKey)
+                    .WithCronSchedule("0 0 0 1/14 * ? *");
+            });
+            
+            options.AddTrigger(configure =>
+            {
+                configure
+                    .WithIdentity("CreatedScanJob")
+                    .ForJob(CreatedScanJob.JobKey)
+                    .WithCronSchedule("0 0/1 0 ? * * *");
+            });
+            
+            options.AddTrigger(configure =>
+            {
+                configure
+                    .WithIdentity("ModifiedScanJob")
+                    .ForJob(ModifiedScanJob.JobKey)
+                    .WithCronSchedule("0 1/1 0 ? * * *");
+            });
+        });
 
         services.Configure<ApiOptions>(context.Configuration.GetSection("Api"));
         services.AddHttpClient<ApiClient>();
