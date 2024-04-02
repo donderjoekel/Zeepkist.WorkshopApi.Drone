@@ -11,23 +11,21 @@ public class ModifiedScanJob : BaseJob
     public static readonly JobKey JobKey = new("ModifiedScanJob");
 
     public ModifiedScanJob(
-        // ReSharper disable once ContextualLoggerProblem
-        ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger,
+        ILoggerFactory loggerFactory,
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
-        IOptions<SteamOptions> steamOptions,
-        ILogger<ModifiedScanJob> logger
+        IOptions<SteamOptions> steamOptions
     )
-        : base(depotDownloaderLogger, steamClient, apiClient, uploadService, steamOptions, logger)
+        : base(loggerFactory, steamClient, apiClient, uploadService, steamOptions)
     {
     }
 
     protected override int MaxEmptyPages => MAX_EMPTY_PAGES;
     protected override bool ByModified => true;
     
-    protected override Task ExecuteJob(CancellationToken stoppingToken)
+    protected override Task ExecuteJob(CancellationToken ct)
     {
-        return ExecuteMulti(stoppingToken);
+        return ExecuteMulti(ct);
     }
 }

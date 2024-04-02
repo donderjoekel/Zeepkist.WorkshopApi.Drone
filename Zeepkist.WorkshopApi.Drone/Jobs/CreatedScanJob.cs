@@ -11,15 +11,13 @@ public class CreatedScanJob : BaseJob
     public static readonly JobKey JobKey = new("CreatedScanJob");
 
     public CreatedScanJob(
-        // ReSharper disable once ContextualLoggerProblem
-        ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger,
+        ILoggerFactory loggerFactory,
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
-        IOptions<SteamOptions> steamOptions,
-        ILogger<CreatedScanJob> logger
+        IOptions<SteamOptions> steamOptions
     )
-        : base(depotDownloaderLogger, steamClient, apiClient, uploadService, steamOptions, logger)
+        : base(loggerFactory, steamClient, apiClient, uploadService, steamOptions)
     {
     }
 

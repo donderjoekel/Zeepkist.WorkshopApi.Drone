@@ -18,31 +18,29 @@ public abstract class BaseJob : IJob
     protected const int MAX_EMPTY_PAGES = 10;
     
     private readonly ILogger<DepotDownloader.DepotDownloader> _depotDownloaderLogger;
-    private readonly SteamClient steamClient;
-    private readonly ApiClient apiClient;
-    private readonly IUploadService uploadService;
-    private readonly SteamOptions steamOptions;
-    private readonly ILogger logger;
+    private readonly SteamClient _steamClient;
+    private readonly ApiClient _apiClient;
+    private readonly IUploadService _uploadService;
+    private readonly SteamOptions _steamOptions;
+    private readonly ILogger _logger;
 
     protected BaseJob(
-        // ReSharper disable once ContextualLoggerProblem
-        ILogger<DepotDownloader.DepotDownloader> depotDownloaderLogger,
+        ILoggerFactory loggerFactory,
         SteamClient steamClient,
         ApiClient apiClient,
         IUploadService uploadService,
-        IOptions<SteamOptions> steamOptions,
-        ILogger logger
+        IOptions<SteamOptions> steamOptions
     )
     {
-        _depotDownloaderLogger = depotDownloaderLogger;
-        this.steamClient = steamClient;
-        this.apiClient = apiClient;
-        this.uploadService = uploadService;
-        this.steamOptions = steamOptions.Value;
-        this.logger = logger;
+        _depotDownloaderLogger = loggerFactory.CreateLogger<DepotDownloader.DepotDownloader>();
+        _steamClient = steamClient;
+        _apiClient = apiClient;
+        _uploadService = uploadService;
+        _steamOptions = steamOptions.Value;
+        _logger = loggerFactory.CreateLogger(GetType());
     }
 
-    protected ILogger Logger => logger;
+    protected ILogger Logger => _logger;
     
     protected abstract int MaxEmptyPages { get; }
     protected abstract bool ByModified { get; }
@@ -56,7 +54,7 @@ public abstract class BaseJob : IJob
         }
         catch (Exception e)
         {
-            logger.LogError(e, "An error occurred while executing job");
+            _logger.LogError(e, "An error occurred while executing job");
         }
         finally
         {
@@ -65,11 +63,11 @@ public abstract class BaseJob : IJob
         }
     }
 
-    protected abstract Task ExecuteJob(CancellationToken stoppingToken);
+    protected abstract Task ExecuteJob(CancellationToken ct);
     
     protected async Task ExecuteSingle(string workshopId, CancellationToken stoppingToken)
     {
-        Response response = await steamClient.GetResponse(workshopId, stoppingToken);
+        Response response = await _steamClient.GetResponse(workshopId, stoppingToken);
         await ProcessResponse(response, stoppingToken);
     }
     
@@ -78,16 +76,16 @@ public abstract class BaseJob : IJob
         int amountEmpty = 0;
         int page = 0;
 
-        int totalPages = await steamClient.GetTotalPages(ByModified, stoppingToken);
+        int totalPages = await _steamClient.GetTotalPages(ByModified, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested && amountEmpty < MaxEmptyPages)
         {
-            logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
-            Response response = await steamClient.GetResponse(page, ByModified, stoppingToken);
+            _logger.LogInformation("Getting page {Page}/{Total}", page, totalPages);
+            Response response = await _steamClient.GetResponse(page, ByModified, stoppingToken);
 
             if (response.PublishedFileDetails.Length == 0)
             {
-                logger.LogInformation("No more items, breaking loop");
+                _logger.LogInformation("No more items, breaking loop");
                 break;
             }
 
@@ -104,13 +102,13 @@ public abstract class BaseJob : IJob
     {
         int totalFalsePositives = 0;
 
-        logger.LogInformation("Processing {Count} items", response.PublishedFileDetails.Length);
+        _logger.LogInformation("Processing {Count} items", response.PublishedFileDetails.Length);
         foreach (PublishedFileDetails publishedFileDetails in response.PublishedFileDetails)
         {
             string guid = Guid.NewGuid().ToString().Replace("-", "");
-            string destination = Path.Combine(steamOptions.MountDestination, guid);
+            string destination = Path.Combine(_steamOptions.MountDestination, guid);
             
-            logger.LogInformation("Downloading {WorkshopId}", publishedFileDetails.PublishedFileId);
+            _logger.LogInformation("Downloading {WorkshopId}", publishedFileDetails.PublishedFileId);
             await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId, destination);
 
             List<string> files = Directory.EnumerateFiles(destination, "*.zeeplevel", SearchOption.AllDirectories)
@@ -121,7 +119,7 @@ public abstract class BaseJob : IJob
             int falsePositives = 0;
             foreach (string path in files)
             {
-                logger.LogInformation("Processing '{Path}'", path);
+                _logger.LogInformation("Processing '{Path}'", path);
                 Result<bool> processResult = await ProcessItem(path,
                     publishedFileDetails,
                     publishedFileDetails.PublishedFileId,
@@ -129,7 +127,7 @@ public abstract class BaseJob : IJob
 
                 if (processResult.IsFailed)
                 {
-                    logger.LogError("Unable to process item: {Result}", processResult);
+                    _logger.LogError("Unable to process item: {Result}", processResult);
                 }
                 else if (!processResult.Value)
                 {
@@ -152,7 +150,7 @@ public abstract class BaseJob : IJob
     private async Task DeleteMissingLevels(PublishedFileDetails publishedFileDetails, List<string> files)
     {
         Result<IEnumerable<LevelResponseModel>> result =
-            await apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
+            await _apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
 
         if (result.IsFailedWithNotFound())
         {
@@ -161,7 +159,7 @@ public abstract class BaseJob : IJob
         
         if (result.IsFailed)
         {
-            logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
+            _logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
             return;
         }
 
@@ -191,11 +189,11 @@ public abstract class BaseJob : IJob
             if (foundLevelInFile)
                 continue;
 
-            Result<LevelResponseModel> deleteResult = await apiClient.DeleteLevel(levelResponseModel.Id);
+            Result<LevelResponseModel> deleteResult = await _apiClient.DeleteLevel(levelResponseModel.Id);
 
             if (deleteResult.IsFailed)
             {
-                logger.LogError("Unable to delete level: {Result}", deleteResult.ToString());
+                _logger.LogError("Unable to delete level: {Result}", deleteResult.ToString());
             }
         }
     }
@@ -203,11 +201,11 @@ public abstract class BaseJob : IJob
     private async Task EnsureFalsePositivesTimeUpdated(PublishedFileDetails publishedFileDetails, List<string> files)
     {
         Result<IEnumerable<LevelResponseModel>> result =
-            await apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
+            await _apiClient.GetLevelsByWorkshopId(publishedFileDetails.PublishedFileId);
 
         if (!result.IsSuccess)
         {
-            logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
+            _logger.LogError("Unable to get levels by workshop id: {Result}", result.ToString());
             return;
         }
 
@@ -221,13 +219,13 @@ public abstract class BaseJob : IJob
             if (levelResponseModel.UpdatedAt == publishedFileDetails.TimeUpdated)
                 continue;
 
-            Result<LevelResponseModel> updateResult = await apiClient.UpdateLevelTime(
+            Result<LevelResponseModel> updateResult = await _apiClient.UpdateLevelTime(
                 levelResponseModel.Id,
                 new DateTimeOffset(publishedFileDetails.TimeUpdated).ToUnixTimeSeconds());
 
             if (updateResult.IsFailed)
             {
-                logger.LogError("Unable to update level time: {Result}", updateResult.ToString());
+                _logger.LogError("Unable to update level time: {Result}", updateResult.ToString());
             }
         }
     }
@@ -239,7 +237,7 @@ public abstract class BaseJob : IJob
         foreach (PublishedFileDetails details in response.PublishedFileDetails)
         {
             Result<IEnumerable<LevelResponseModel>> result =
-                await apiClient.GetLevelsByWorkshopId(details.PublishedFileId);
+                await _apiClient.GetLevelsByWorkshopId(details.PublishedFileId);
 
             if (result.IsFailed)
             {
@@ -285,11 +283,11 @@ public abstract class BaseJob : IJob
 
         if (string.IsNullOrEmpty(filename) || string.IsNullOrWhiteSpace(filename))
         {
-            logger.LogWarning("Filename for {WorkshopId} is empty", workshopId);
+            _logger.LogWarning("Filename for {WorkshopId} is empty", workshopId);
             filename = "[Unknown]";
         }
 
-        Result<IEnumerable<LevelResponseModel>> getLevelsResult = await apiClient.GetLevelsByWorkshopId(workshopId);
+        Result<IEnumerable<LevelResponseModel>> getLevelsResult = await _apiClient.GetLevelsByWorkshopId(workshopId);
         if (getLevelsResult.IsFailedWithNotFound())
         {
             return await HandleNewLevel(path, item, filename, stoppingToken);
@@ -300,7 +298,7 @@ public abstract class BaseJob : IJob
             return await HandleExistingItem(path, item, getLevelsResult, filename, stoppingToken);
         }
 
-        logger.LogCritical("Unable to get levels from API; Result: {Result}", getLevelsResult.ToString());
+        _logger.LogCritical("Unable to get levels from API; Result: {Result}", getLevelsResult.ToString());
         throw new Exception();
     }
 
@@ -318,7 +316,7 @@ public abstract class BaseJob : IJob
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Unable to create new level");
+            _logger.LogError(e, "Unable to create new level");
             return Result.Fail(new ExceptionalError(e));
         }
     }
@@ -343,7 +341,7 @@ public abstract class BaseJob : IJob
             }
             catch (Exception e)
             {
-                logger.LogError(e, "Unable to create new level");
+                _logger.LogError(e, "Unable to create new level");
                 return Result.Fail(new ExceptionalError(e));
             }
         }
@@ -353,7 +351,7 @@ public abstract class BaseJob : IJob
             return await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
         }
 
-        logger.LogInformation("Received item isn't newer than the existing item, skipping");
+        _logger.LogInformation("Received item isn't newer than the existing item, skipping");
         return Result.Ok(false);
     }
 
@@ -382,7 +380,7 @@ public abstract class BaseJob : IJob
 
         if (string.IsNullOrEmpty(author) || string.IsNullOrWhiteSpace(author))
         {
-            logger.LogWarning("Author for {Filename} ({WorkshopId}) is empty", filename, item.PublishedFileId);
+            _logger.LogWarning("Author for {Filename} ({WorkshopId}) is empty", filename, item.PublishedFileId);
             author = "[Unknown]";
         }
 
@@ -392,7 +390,7 @@ public abstract class BaseJob : IJob
 
         if (string.IsNullOrEmpty(image))
         {
-            logger.LogWarning("No image found for {Filename}", filename);
+            _logger.LogWarning("No image found for {Filename}", filename);
         }
 
         using (FileStream zipStream = File.Create(path + ".zip"))
@@ -406,10 +404,10 @@ public abstract class BaseJob : IJob
 
         string identifier = Guid.NewGuid().ToString();
 
-        logger.LogInformation("Identifier: {Identifier}", identifier);
+        _logger.LogInformation("Identifier: {Identifier}", identifier);
 
         Result<string> uploadLevelResult =
-            await uploadService.UploadLevel(identifier,
+            await _uploadService.UploadLevel(identifier,
                 await File.ReadAllBytesAsync(path + ".zip", stoppingToken),
                 stoppingToken);
 
@@ -422,7 +420,7 @@ public abstract class BaseJob : IJob
 
         if (!string.IsNullOrEmpty(image))
         {
-            uploadThumbnailResult = await uploadService.UploadThumbnail(identifier,
+            uploadThumbnailResult = await _uploadService.UploadThumbnail(identifier,
                 await File.ReadAllBytesAsync(image, stoppingToken),
                 stoppingToken);
 
@@ -436,7 +434,7 @@ public abstract class BaseJob : IJob
             uploadThumbnailResult = "https://storage.googleapis.com/zworpshop/image-not-found.png";
         }
 
-        Result<LevelResponseModel> createLevelResult = await apiClient.CreateLevel(builder =>
+        Result<LevelResponseModel> createLevelResult = await _apiClient.CreateLevel(builder =>
         {
             builder
                 .WithWorkshopId(item.PublishedFileId)
@@ -457,7 +455,7 @@ public abstract class BaseJob : IJob
             return createLevelResult.ToResult();
         }
 
-        logger.LogInformation("Created level [{LevelId} ({WorkshopId})] {Name} by {Author} ({AuthorId})",
+        _logger.LogInformation("Created level [{LevelId} ({WorkshopId})] {Name} by {Author} ({AuthorId})",
             createLevelResult.Value.Id,
             item.PublishedFileId,
             filename,
@@ -482,7 +480,7 @@ public abstract class BaseJob : IJob
         {
             if (existingItem.UpdatedAt == item.TimeUpdated)
             {
-                logger.LogInformation("False positive for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+                _logger.LogInformation("False positive for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
                 return Result.Ok(false);
             }
 
@@ -493,19 +491,19 @@ public abstract class BaseJob : IJob
 
                 if (newFileHash == existingItem.FileHash)
                 {
-                    Result<LevelResponseModel> updateResult = await apiClient.UpdateLevelTime(existingId,
+                    Result<LevelResponseModel> updateResult = await _apiClient.UpdateLevelTime(existingId,
                         new DateTimeOffset(item.TimeUpdated).ToUnixTimeSeconds());
 
                     return updateResult.IsSuccess ? Result.Ok(false) : updateResult.ToResult();
                 }
 
-                logger.LogError("Hashes don't match for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+                _logger.LogError("Hashes don't match for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
                 return Result.Ok(false);
             }
 
             if (existingItem.UpdatedAt > item.TimeUpdated)
             {
-                logger.LogInformation("False positive for {Filename} ({WorkshopId}), ours is newer somehow",
+                _logger.LogInformation("False positive for {Filename} ({WorkshopId}), ours is newer somehow",
                     filename,
                     item.PublishedFileId);
                 return Result.Ok(false);
@@ -527,15 +525,15 @@ public abstract class BaseJob : IJob
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Unable to create new level");
+            _logger.LogError(e, "Unable to create new level");
             return Result.Fail(new ExceptionalError(e));
         }
 
-        Result<LevelResponseModel> result = await apiClient.ReplaceLevel(existingId, newId);
+        Result<LevelResponseModel> result = await _apiClient.ReplaceLevel(existingId, newId);
 
         if (result.IsFailed)
         {
-            logger.LogCritical("Unable to replace level {ExistingId} with {NewId}; Result: {Result}",
+            _logger.LogCritical("Unable to replace level {ExistingId} with {NewId}; Result: {Result}",
                 existingId,
                 newId,
                 result.ToString());
@@ -543,7 +541,7 @@ public abstract class BaseJob : IJob
             return result.ToResult();
         }
 
-        logger.LogInformation("Replaced level {ExistingId} with {NewId}", existingId, newId);
+        _logger.LogInformation("Replaced level {ExistingId} with {NewId}", existingId, newId);
         return Result.Ok(true);
     }
 
@@ -588,7 +586,7 @@ public abstract class BaseJob : IJob
     {
         string hash = Hash(await GetTextToHash(path, stoppingToken));
 
-        Result<MetadataResponseModel> result = await apiClient.GetMetadataByHash(hash);
+        Result<MetadataResponseModel> result = await _apiClient.GetMetadataByHash(hash);
 
         if (result.IsSuccess)
         {
@@ -622,7 +620,7 @@ public abstract class BaseJob : IJob
         
         if (splits.Length != 6)
         {
-            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            _logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
             skybox = int.MaxValue;
             ground = int.MaxValue;
         }
@@ -637,13 +635,13 @@ public abstract class BaseJob : IJob
 
         if (string.IsNullOrEmpty(blocks))
         {
-            logger.LogError("No blocks found in level {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            _logger.LogError("No blocks found in level {Filename} ({WorkshopId})", filename, item.PublishedFileId);
             return Result.Fail(new ExceptionalError(new Exception("No blocks found in level")));
         }
         
         bool valid = validTime && validBlocks;
 
-        Result<MetadataResponseModel> metadata = await apiClient.CreateMetadata(builder =>
+        Result<MetadataResponseModel> metadata = await _apiClient.CreateMetadata(builder =>
         {
             builder
                 .WithHash(hash)
@@ -693,7 +691,7 @@ public abstract class BaseJob : IJob
         }
         else
         {
-            logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
+            _logger.LogWarning("Not enough splits for {Filename} ({WorkshopId})", filename, item.PublishedFileId);
         }
 
         if (valid)
@@ -730,7 +728,7 @@ public abstract class BaseJob : IJob
         {
             if (!line.Contains(','))
             {
-                logger.LogWarning("Invalid line in level ({Path}): '{Line}'", path, line);
+                _logger.LogWarning("Invalid line in level ({Path}): '{Line}'", path, line);
                 continue;
             }
             

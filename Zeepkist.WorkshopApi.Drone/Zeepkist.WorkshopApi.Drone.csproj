@@ -24,6 +24,7 @@
         <PackageReference Include="Serilog.Sinks.Seq" Version="5.2.2" />
         <PackageReference Include="SteamKit2" Version="2.5.0-Beta.1" />
         <PackageReference Include="System.Net.Http" Version="4.3.4" />
+        <PackageReference Include="TNRD.Zeepkist.WorkshopApi.Database" Version="2.3.0" />
     </ItemGroup>
 
     <ItemGroup>
