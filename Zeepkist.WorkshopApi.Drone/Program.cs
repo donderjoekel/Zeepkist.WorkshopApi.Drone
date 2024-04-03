@@ -44,6 +44,7 @@ IHost host = Host.CreateDefaultBuilder(args)
             {
                 configure
                     .WithIdentity("FullScanJob")
+                    .WithPriority(int.MaxValue)
                     .ForJob(FullScanJob.JobKey)
                     .WithCronSchedule("0 0 0 1/14 * ? *");
             });
