@@ -37,7 +37,22 @@ public class RequestsScanJob : BaseJob
 
         foreach (Request request in requests)
         {
-            bool hadLevelBefore = await HasLevel(request, ct);
+            Logger.LogInformation("Processing scan request with info; {WorkshopId} {Hash} {Uid}",
+                request.WorkshopId,
+                request.Hash,
+                request.Uid);
+            
+            MatchType matchBefore = await HasLevel(request, ct);
+
+            if (matchBefore == MatchType.FullMatch)
+            {
+                Logger.LogInformation("Full match found for request with info; {WorkshopId} {Hash} {Uid}",
+                    request.WorkshopId,
+                    request.Hash,
+                    request.Uid);
+
+                goto REMOVE_FROM_DB;
+            }
             
             if (ct.IsCancellationRequested)
             {
@@ -51,9 +66,9 @@ public class RequestsScanJob : BaseJob
                 return;
             }
 
-            bool hasLevelAfter = await HasLevel(request, ct);
+            MatchType matchAfter = await HasLevel(request, ct);
 
-            if (!hasLevelAfter)
+            if (matchAfter == MatchType.NoMatch)
             {
                 Logger.LogError("No new level was created for request with info; {WorkshopId} {Hash} {Uid}",
                     request.WorkshopId,
@@ -63,7 +78,7 @@ public class RequestsScanJob : BaseJob
                 continue;
             }
 
-            if (!hadLevelBefore)
+            if (matchBefore == MatchType.NoMatch)
             {
                 Logger.LogInformation("New level was created for request with info; {WorkshopId} {Hash} {Uid}",
                     request.WorkshopId,
@@ -78,30 +93,52 @@ public class RequestsScanJob : BaseJob
                     request.Uid);
             }
             
+            REMOVE_FROM_DB:
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            
             _db.Requests.Remove(request);
             await _db.SaveChangesAsync(ct);
         }
     }
 
-    private Task<bool> HasLevel(Request request, CancellationToken ct)
+    private async Task<MatchType> HasLevel(Request request, CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(request.Hash) && !string.IsNullOrEmpty(request.Uid))
         {
-            return _db.Levels.AnyAsync(x =>
+            return await _db.Levels.AnyAsync(x =>
                     x.WorkshopId == request.WorkshopId && x.FileHash == request.Hash && x.FileUid == request.Uid,
-                ct);
+                ct)
+                ? MatchType.FullMatch
+                : MatchType.NoMatch;
         }
 
         if (!string.IsNullOrEmpty(request.Hash))
         {
-            return _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId && x.FileHash == request.Hash, ct);
+            return await _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId && x.FileHash == request.Hash, ct)
+                ? MatchType.PartialMatch
+                : MatchType.NoMatch;
         }
 
         if (!string.IsNullOrEmpty(request.Uid))
         {
-            return _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId && x.FileUid == request.Uid, ct);
+            return await _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId && x.FileUid == request.Uid, ct)
+                ? MatchType.PartialMatch
+                : MatchType.NoMatch;
         }
 
-        return _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId, ct);
+        return await _db.Levels.AnyAsync(x => x.WorkshopId == request.WorkshopId, ct)
+            ? MatchType.PartialMatch
+            : MatchType.NoMatch;
+    }
+
+    private enum MatchType
+    {
+        NoMatch = 0,
+        PartialMatch = 1,
+        FullMatch = 2
     }
 }
