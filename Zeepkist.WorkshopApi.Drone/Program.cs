@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Options;
 using Quartz;
 using Serilog;
+using TNRD.Zeepkist.WorkshopApi.Database;
 using TNRD.Zeepkist.WorkshopApi.Drone;
 using TNRD.Zeepkist.WorkshopApi.Drone.Api;
 using TNRD.Zeepkist.WorkshopApi.Drone.Google;
@@ -19,7 +21,7 @@ IHost host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((context, services) =>
     {
-        // services.AddHostedService<Worker>();
+        services.AddNpgsql<ZworpshopContext>(context.Configuration["Database:ConnectionString"]);
 
         services.AddQuartzHostedService(options =>
         {
@@ -34,6 +36,8 @@ IHost host = Host.CreateDefaultBuilder(args)
             options.AddJob<CreatedScanJob>(CreatedScanJob.JobKey,
                 configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
             options.AddJob<ModifiedScanJob>(ModifiedScanJob.JobKey,
+                configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
+            options.AddJob<RequestsScanJob>(RequestsScanJob.JobKey,
                 configurator => configurator.DisallowConcurrentExecution()).UseDefaultThreadPool(1);
             
             options.AddTrigger(configure =>
