@@ -109,7 +109,14 @@ public abstract class BaseJob : IJob
             string destination = Path.Combine(_steamOptions.MountDestination, guid);
             
             _logger.LogInformation("Downloading {WorkshopId}", publishedFileDetails.PublishedFileId);
-            await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId, destination);
+            int result = await DepotDownloader.DepotDownloader.Run(publishedFileDetails.PublishedFileId, destination);
+
+            if (result != 0)
+            {
+                Logger.LogError("DepotDownloader failed with exit code {ExitCode}", result);
+                Directory.Delete(destination, true);
+                continue;
+            }
 
             List<string> files = Directory.EnumerateFiles(destination, "*.zeeplevel", SearchOption.AllDirectories)
                 .ToList();

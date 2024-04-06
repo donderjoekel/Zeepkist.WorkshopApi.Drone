@@ -367,6 +367,7 @@ namespace DepotDownloader
             {
                 DepotDownloader.Logger.LogError("Unable to locate manifest ID for published file {ID}",
                     publishedFileId);
+                throw new Exception("Unable to locate manifest ID for published file");
             }
         }
 

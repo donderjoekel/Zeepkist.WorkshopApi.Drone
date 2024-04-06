@@ -58,8 +58,21 @@ public class RequestsScanJob : BaseJob
             {
                 return;
             }
-            
-            await ExecuteSingle(request.WorkshopId.ToString(), ct);
+
+            try
+            {
+                await ExecuteSingle(request.WorkshopId.ToString(), ct);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e,
+                    "Error occurred while processing request with info; {WorkshopId} {Hash} {Uid}",
+                    request.WorkshopId,
+                    request.Hash,
+                    request.Uid);
+
+                continue;
+            }
 
             if (ct.IsCancellationRequested)
             {
