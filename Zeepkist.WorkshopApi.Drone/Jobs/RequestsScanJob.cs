@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using DepotDownloader;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Quartz;
 using TNRD.Zeepkist.WorkshopApi.Database;
@@ -33,7 +34,7 @@ public class RequestsScanJob : BaseJob
 
     protected override async Task ExecuteJob(CancellationToken ct)
     {
-        List<Request> requests = await _db.Requests.ToListAsync(cancellationToken: ct);
+        List<Request> requests = await _db.Requests.OrderBy(x => x.Id).ToListAsync(cancellationToken: ct);
 
         foreach (Request request in requests)
         {
@@ -59,9 +60,24 @@ public class RequestsScanJob : BaseJob
                 return;
             }
 
+            if (request.WorkshopId == 0)
+            {
+                Logger.LogWarning("Request has no workshop id; {Hash} {Uid}", request.Hash, request.Uid);
+                goto REMOVE_FROM_DB;
+            }
+
             try
             {
                 await ExecuteSingle(request.WorkshopId.ToString(), ct);
+            }
+            catch (ManifestIdNotFoundException)
+            {
+                Logger.LogError("Unable to find manifest id for request with info; {WorkshopId} {Hash} {Uid}",
+                    request.WorkshopId,
+                    request.Hash,
+                    request.Uid);
+                
+                goto REMOVE_FROM_DB;
             }
             catch (Exception e)
             {

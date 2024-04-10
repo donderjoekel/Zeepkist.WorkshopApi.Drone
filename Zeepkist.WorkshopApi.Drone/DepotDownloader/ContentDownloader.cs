@@ -367,7 +367,7 @@ namespace DepotDownloader
             {
                 DepotDownloader.Logger.LogError("Unable to locate manifest ID for published file {ID}",
                     publishedFileId);
-                throw new Exception("Unable to locate manifest ID for published file");
+                throw new ManifestIdNotFoundException();
             }
         }
 
@@ -1050,6 +1050,7 @@ namespace DepotDownloader
             ProtoManifest.FileData file,
             ConcurrentQueue<(FileStreamData, ProtoManifest.FileData, ProtoManifest.ChunkData)> networkChunkQueue)
         {
+            DepotDownloader.Logger.LogInformation("[DownloadSteam3AsyncDepotFile] Starting preallocate");
             cts.Token.ThrowIfCancellationRequested();
 
             var depot = depotFilesData.depotDownloadInfo;
@@ -1253,6 +1254,7 @@ namespace DepotDownloader
             FileStreamData fileStreamData,
             ProtoManifest.ChunkData chunk)
         {
+            DepotDownloader.Logger.LogInformation("[DownloadSteam3AsyncDepotFileChunk] Starting download");
             cts.Token.ThrowIfCancellationRequested();
 
             var depot = depotFilesData.depotDownloadInfo;
