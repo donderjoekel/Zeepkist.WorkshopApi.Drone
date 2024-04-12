@@ -1282,6 +1282,8 @@ namespace DepotDownloader
                     connection = cdnPool.GetConnection(cts.Token);
 
                     DebugLog.WriteLine("ContentDownloader", "Downloading chunk {0} from {1} with {2}", chunkID, connection, cdnPool.ProxyServer != null ? cdnPool.ProxyServer : "no proxy");
+                    DepotDownloader.Logger.LogDebug("Downloading chunk {ChunkID} from {Connection} with {ProxyServer}",
+                        chunkID, connection, cdnPool.ProxyServer != null ? cdnPool.ProxyServer : "no proxy");
                     chunkData = await cdnPool.CDNClient.DownloadDepotChunkAsync(
                         depot.id,
                         data,
@@ -1294,6 +1296,7 @@ namespace DepotDownloader
                 catch (TaskCanceledException)
                 {
                     Console.WriteLine("Connection timeout downloading chunk {0}", chunkID);
+                    DepotDownloader.Logger.LogWarning("Connection timeout downloading chunk {ChunkID}", chunkID);
                 }
                 catch (SteamKitWebRequestException e)
                 {
@@ -1302,10 +1305,13 @@ namespace DepotDownloader
                     if (e.StatusCode == HttpStatusCode.Unauthorized || e.StatusCode == HttpStatusCode.Forbidden)
                     {
                         Console.WriteLine("Encountered 401 for chunk {0}. Aborting.", chunkID);
+                        DepotDownloader.Logger.LogError("Encountered 401 for chunk {ChunkID}. Aborting", chunkID);
                         break;
                     }
 
                     Console.WriteLine("Encountered error downloading chunk {0}: {1}", chunkID, e.StatusCode);
+                    DepotDownloader.Logger.LogError("Encountered error downloading chunk {ChunkID}: {StatusCode}",
+                        chunkID, e.StatusCode);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1315,12 +1321,16 @@ namespace DepotDownloader
                 {
                     cdnPool.ReturnBrokenConnection(connection);
                     Console.WriteLine("Encountered unexpected error downloading chunk {0}: {1}", chunkID, e.Message);
+                    DepotDownloader.Logger.LogError("Encountered unexpected error downloading chunk {ChunkID}: {Message}",
+                        chunkID, e.Message);
                 }
             } while (chunkData == null);
 
             if (chunkData == null)
             {
                 Console.WriteLine("Failed to find any server with chunk {0} for depot {1}. Aborting.", chunkID, depot.id);
+                DepotDownloader.Logger.LogError("Failed to find any server with chunk {ChunkID} for depot {DepotId}. Aborting",
+                    chunkID, depot.id);
                 cts.Cancel();
             }
 
