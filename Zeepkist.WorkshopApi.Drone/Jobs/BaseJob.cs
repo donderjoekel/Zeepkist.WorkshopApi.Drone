@@ -358,6 +358,18 @@ public abstract class BaseJob : IJob
             return await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
         }
 
+        var uid = await GetUidFromFile(path, stoppingToken);
+        if (existingItem.FileUid != uid)
+        {
+            return await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
+        }
+
+        var hash = Hash(await GetTextToHash(path, stoppingToken));
+        if (existingItem.FileHash != hash)
+        {
+            return await ReplaceExistingLevel(existingItem, path, filename, item, stoppingToken);
+        }
+
         _logger.LogInformation("Received item isn't newer than the existing item, skipping");
         return Result.Ok(false);
     }
