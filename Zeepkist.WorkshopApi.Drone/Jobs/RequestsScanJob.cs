@@ -42,7 +42,7 @@ public class RequestsScanJob : BaseJob
                 request.WorkshopId,
                 request.Hash,
                 request.Uid);
-            
+
             MatchType matchBefore = await HasLevel(request, ct);
 
             if (matchBefore == MatchType.FullMatch)
@@ -54,7 +54,7 @@ public class RequestsScanJob : BaseJob
 
                 goto REMOVE_FROM_DB;
             }
-            
+
             if (ct.IsCancellationRequested)
             {
                 return;
@@ -76,7 +76,7 @@ public class RequestsScanJob : BaseJob
                     request.WorkshopId,
                     request.Hash,
                     request.Uid);
-                
+
                 goto REMOVE_FROM_DB;
             }
             catch (Exception e)
@@ -121,14 +121,14 @@ public class RequestsScanJob : BaseJob
                     request.Hash,
                     request.Uid);
             }
-            
+
             REMOVE_FROM_DB:
 
             if (ct.IsCancellationRequested)
             {
                 return;
             }
-            
+
             _db.Requests.Remove(request);
             await _db.SaveChangesAsync(ct);
         }
