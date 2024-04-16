@@ -104,7 +104,7 @@ public class RequestsScanJob : BaseJob
                     request.Hash,
                     request.Uid);
 
-                continue;
+                goto REMOVE_FROM_DB;
             }
 
             if (matchBefore == MatchType.NoMatch)
